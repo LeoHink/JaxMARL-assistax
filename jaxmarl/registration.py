@@ -23,6 +23,7 @@ from .environments import (
     HalfCheetah,
     ScratchItch,
     BedBathing,
+    ArmManipulation,
     InTheGrid,
     InTheGrid_2p,
     Hanabi,
@@ -87,6 +88,8 @@ def make(env_id: str, **env_kwargs):
         env = ScratchItch(**env_kwargs)
     elif env_id == "bedbathing":
         env = BedBathing(**env_kwargs)
+    elif env_id == "armmanipulation":
+        env = ArmManipulation(**env_kwargs)
     elif env_id == "hopper_3x1":
         env = Hopper(**env_kwargs)
     elif env_id == "humanoid_9|8":
@@ -144,6 +147,7 @@ registered_envs = [
     "walker2d_2x3",
     "scratchitch",
     "bedbathing",
+    "armmanipulation",
     "storm",
     "storm_2p",
     "hanabi",

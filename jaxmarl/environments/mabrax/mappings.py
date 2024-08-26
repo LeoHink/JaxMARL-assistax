@@ -41,6 +41,10 @@ _agent_action_mapping = {
         "robot": jnp.array([17, 18, 19, 20, 21, 22, 23]),
         "human": jnp.array([11, 12, 13]),
     },
+    "armmanipulation": {
+        "robot": jnp.array([17, 18, 19, 20, 21, 22, 23]),
+        "human": jnp.array([11, 12, 13]),
+    },
 }
 
 
@@ -111,6 +115,10 @@ ranges: Dict[str, Dict[str, List[Union[int, Tuple[int, int]]]]] = {
         "human": [(29,68)] # New obs
     },
     "bedbathing": {
+        "robot": [(0,24)],
+        "human": [(25,60)]
+    },
+    "armmanipulation": {
         "robot": [(0,24)],
         "human": [(25,60)]
     },

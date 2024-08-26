@@ -231,3 +231,8 @@ class ScratchItch(MABraxEnv):
 class BedBathing(MABraxEnv):
     def __init__(self, **kwargs):
         super().__init__("bedbathing", **kwargs)
+
+
+class ArmManipulation(MABraxEnv):
+    def __init__(self, **kwargs):
+        super().__init__("armmanipulation", **kwargs)
