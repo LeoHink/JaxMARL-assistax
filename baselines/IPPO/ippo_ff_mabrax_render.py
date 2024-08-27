@@ -356,25 +356,22 @@ def main(config):
     # TODO ===
     if config["ENV_NAME"] == "scratchitch":
         modified_sys = env.env.get_sys_for_render(state_seq[0])
-        # TODO #2=
-        breakpoint()
-        modified_sys = modified_sys.tree_replace(state_seq[0].info["sys_var"])
-        # ========
     else:
         modified_sys = env.sys
     viz = html.render(modified_sys, [s.pipeline_state for s in state_seq])
     # ======
-    # viz = html.render(env.sys, [s.pipeline_state for s in state_seq])
     with open(f"render_{tag}.html", "w") as f:
         f.write(viz)
     reward_dist = jnp.array([s.metrics["reward_dist"] for s in state_seq])
     reward_ctrl = jnp.array([s.metrics["reward_ctrl"] for s in state_seq])
     jnp.save(f"mabrax/{env_name}/reward_dist_{tag}.npy", reward_dist)
     jnp.save(f"mabrax/{env_name}/reward_ctrl_{tag}.npy", reward_ctrl)
-    reward_scratch = jnp.array([s.metrics["reward_scratching"] for s in state_seq])
-    jnp.save(f"mabrax/{env_name}/reward_scratch_{tag}.npy", reward_scratch)
-    #reward_wiping = jnp.array([s.metrics["reward_wiping"] for s in state_seq])
-    #jnp.save(f"mabrax/{env_name}/reward_wiping_{tag}.npy", reward_wiping)
+    if config["ENV_NAME"] == "scratchitch":
+        reward_scratch = jnp.array([s.metrics["reward_scratching"] for s in state_seq])
+        jnp.save(f"mabrax/{env_name}/reward_scratch_{tag}.npy", reward_scratch)
+    if config["ENV_NAME"] == "bedbathing"
+        reward_wiping = jnp.array([s.metrics["reward_wiping"] for s in state_seq])
+        jnp.save(f"mabrax/{env_name}/reward_wiping_{tag}.npy", reward_wiping)
 
     
 
