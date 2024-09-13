@@ -304,6 +304,10 @@ class SimpleMPE(MultiAgentEnv):
         obs = _observation(self.agent_range, state)
         return {a: obs[i] for i, a in enumerate(self.agents)}
 
+    @partial(jax.jit, static_argnums=(0,))
+    def get_avail_actions(self, state: State) -> Dict[str, chex.Array]:
+        return {a: jnp.ones((5,), dtype=jnp.uint8) for a in self.agents}
+
     def rewards(self, state: State) -> Dict[str, float]:
         """Assign rewards for all agents"""
 
@@ -315,6 +319,7 @@ class SimpleMPE(MultiAgentEnv):
 
         r = _reward(self.agent_range, state)
         return {agent: r[i] for i, agent in enumerate(self.agents)}
+
 
     def set_actions(self, actions: Dict):
         """Extract u and c actions for all agents from actions Dict."""

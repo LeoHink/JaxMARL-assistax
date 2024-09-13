@@ -120,6 +120,10 @@ class MABraxEnv(MultiAgentEnv):
             next_state.info,
         )
 
+    @partial(jax.jit, static_argnums=(0,))
+    def get_avail_actions(self, state: envs.State) -> Dict[str, chex.Array]:
+        return {a: jnp.ones(self.action_spaces[a].shape, dtype=jnp.uint8) for a in self.agents}
+
     def get_obs(self, state: envs.State) -> Dict[str, chex.Array]:
         """Extracts agent observations from the global state.
 

@@ -1,17 +1,20 @@
-ENV_NAME: ant_4x2
+ENV_NAME: HeuristicEnemySMAX
+MAP_NAME: 2s3z
 ENV_KWARGS:
-  ctrl_cost_weight: 0
-  homogenisation_method: max
+  scenario: 2s3z
+  see_enemy_actions: True
+  walls_cause_death: True
+  attack_mode: closest
 TOTAL_TIMESTEPS: 1e7
 NUM_STEPS: 128
-NUM_ENVS: 64
+NUM_ENVS: 128
 NUM_SEEDS: 1
 SEED: 0
 
 # NETWORK ARCHITECTURE
 ACTOR_HIDDEN_DIM: 128
 CRITIC_HIDDEN_DIM: 128
-ACTIVATION: tanh
+ACTIVATION: relu
 
 # RL HYPERPARAMETERS
 UPDATE_EPOCHS: 4
@@ -46,7 +49,7 @@ hydra:
   job:
     chdir: true
   run:
-    dir: outputs/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/smax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:
-    dir: multirun/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: multirun/smax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ${RATIO_CLIP_EPS}

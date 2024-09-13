@@ -236,7 +236,8 @@ class HanabiEnv(HanabiGame):
 
         return {a: obs[i] for i, a in enumerate(self.agents)}
 
-    def get_legal_moves(self, state: State) -> chex.Array:
+    @partial(jax.jit, static_argnums=[0])
+    def get_avail_actions(self, state: State) -> Dict[str, chex.Array]:
         """Get all agents' legal moves"""
 
         @partial(jax.vmap, in_axes=[0, None])
@@ -302,6 +303,11 @@ class HanabiEnv(HanabiGame):
         legal_moves = _legal_moves(self.agent_range, state)
 
         return {a: legal_moves[i] for i, a in enumerate(self.agents)}
+
+    @partial(jax.jit, static_argnums=[0])
+    def get_legal_moves(self, state: State) -> Dict[str, chex.Array]:
+        # Alias for get_avail_actions for backwards compatability
+        return self.get_avail_actions(state)
 
     @partial(jax.jit, static_argnums=[0])
     def get_last_action_feats_(
