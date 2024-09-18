@@ -492,7 +492,6 @@ def main(config):
             ),
             in_axes=(None, lr_axis, ent_coef_axis, clip_eps_axis)
         )(run_rngs, lrs, ent_coefs, clip_epss)
-    breakpoint()
     jnp.save(f"metrics_{config_key}.npy", out["metrics"], allow_pickle=True)
     jnp.save(f"hparams_{config_key}.npy", {
         "lr": lrs,
