@@ -144,6 +144,8 @@ class SMAX(MultiAgentEnv):
         observation_type="unit_list",
         action_type="discrete",
     ) -> None:
+        if isinstance(scenario, str):
+            scenario = map_name_to_scenario(scenario)
         self.num_allies = num_allies if scenario is None else scenario.num_allies
         self.num_enemies = num_enemies if scenario is None else scenario.num_enemies
         self.num_agents = self.num_allies + self.num_enemies

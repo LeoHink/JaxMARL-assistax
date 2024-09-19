@@ -1,23 +1,50 @@
-"LR": 2.5e-4
-"NUM_ENVS": 16
-"NUM_STEPS": 128
-"TOTAL_TIMESTEPS": 1e7
-"UPDATE_EPOCHS": 4
-"NUM_MINIBATCHES": 4
-"GAMMA": 0.99
-"GAE_LAMBDA": 0.95
-"CLIP_EPS": 0.2
-"ENT_COEF": 0.01
-"VF_COEF": 0.5
-"MAX_GRAD_NORM": 0.5
-"ACTIVATION": "tanh"
-"ENV_NAME": "MPE_simple_spread_v3"
-"ENV_KWARGS": {}
-"ANNEAL_LR": True
-"SEED": 30
-"NUM_SEEDS": 10
+ENV_NAME: MPE_simple_spread_v3
+ENV_KWARGS: {}
+TOTAL_TIMESTEPS: 1e7
+NUM_STEPS: 128
+NUM_ENVS: 16
+NUM_SEEDS: 1
+SEED: 0
 
-# WandB Params
-"ENTITY": ""
-"PROJECT": "jaxmarl-mpe"
-"WANDB_MODE" : "disabled"
+# NETWORK ARCHITECTURE
+ACTOR_HIDDEN_DIM: 64
+CRITIC_HIDDEN_DIM: 64
+ACTIVATION: relu
+
+# RL HYPERPARAMETERS
+UPDATE_EPOCHS: 4
+NUM_MINIBATCHES: 4
+ANNEAL_LR: False
+LR: 2.5e-4
+ENT_COEF: 0.01
+CLIP_EPS: 0.2
+SCALE_CLIP_EPS: False
+RATIO_CLIP_EPS: False
+GAMMA: 0.99
+GAE_LAMBDA: 0.95
+VF_COEF: 1.0
+MAX_GRAD_NORM: 0.5
+ADAM_EPS: 1e-8
+
+# COMPUTE OPTIONS
+ADVANTAGE_UNROLL_DEPTH: 8
+DISABLE_JIT: False
+DEVICE: 0
+
+# SWEEPER SETTINGS
+SWEEP:
+  num_configs: 4
+  lr:
+    min: -4.0
+    max: -3.0
+  ent_coef: false
+  clip_eps: false
+
+hydra:
+  job:
+    chdir: true
+  run:
+    dir: outputs/mpe/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/mpe/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${RATIO_CLIP_EPS}
