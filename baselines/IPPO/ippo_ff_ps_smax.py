@@ -250,7 +250,7 @@ def make_train(config):
                 def _get_advantages(gae_and_next_value, transition):
                     gae, next_value = gae_and_next_value
                     done, value, reward = (
-                        transition.done,
+                        transition.all_done,
                         transition.value,
                         transition.reward,
                     )
@@ -279,7 +279,7 @@ def make_train(config):
                         # RERUN NETWORK
                         ac_in = (
                             traj_batch.obs,
-                            traj_batch.all_done,
+                            traj_batch.done,
                             traj_batch.avail_actions,
                         )
                         pi, value = train_state.apply_fn(params, ac_in)
