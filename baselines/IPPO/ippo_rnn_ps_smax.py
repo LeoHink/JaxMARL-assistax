@@ -534,7 +534,7 @@ def main(config):
         )
         clip_eps_axis = 0
     else:
-        clip_epss = config["ENT_COEF"]
+        clip_epss = config["CLIP_EPS"]
         clip_eps_axis = None
 
     run_rngs = jax.random.split(run_rng, config["NUM_SEEDS"])
