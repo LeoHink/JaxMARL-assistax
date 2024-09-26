@@ -22,7 +22,7 @@ class ActorCritic(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        if self.config["ACTIVATION"] == "relu":
+        if self.config["network"]["activation"] == "relu":
             activation = nn.relu
         else:
             activation = nn.tanh
@@ -30,13 +30,13 @@ class ActorCritic(nn.Module):
         obs, done, avail_actions = x
 
         actor_mean = nn.Dense(
-            self.config["ACTOR_HIDDEN_DIM"],
+            self.config["network"]["actor_hidden_dim"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0),
         )(obs)
         actor_mean = activation(actor_mean)
         actor_mean = nn.Dense(
-            self.config["ACTOR_HIDDEN_DIM"],
+            self.config["network"]["actor_hidden_dim"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0)
         )(actor_mean)
@@ -54,13 +54,13 @@ class ActorCritic(nn.Module):
         pi = (actor_mean, jnp.exp(actor_log_std))
 
         critic = nn.Dense(
-            self.config["CRITIC_HIDDEN_DIM"],
+            self.config["network"]["critic_hidden_dim"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0),
         )(obs)
         critic = activation(critic)
         critic = nn.Dense(
-            self.config["CRITIC_HIDDEN_DIM"],
+            self.config["network"]["critic_hidden_dim"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0),
         )(critic)
@@ -102,6 +102,17 @@ class UpdateBatch(NamedTuple):
     traj_batch: Transition
     advantages: jnp.ndarray
     targets: jnp.ndarray
+
+class EvalInfo(NamedTuple):
+    env_state: LogEnvState
+    done: jnp.ndarray
+    action: jnp.ndarray
+    value: jnp.ndarray
+    reward: jnp.ndarray
+    log_prob: jnp.ndarray
+    obs: jnp.ndarray
+    info: jnp.ndarray
+    avail_actions: jnp.ndarray
 
 def batchify(qty: Dict[str, jnp.ndarray], agents: Sequence[str]) -> jnp.ndarray:
     """Convert dict of arrays to batched array."""
@@ -427,6 +438,7 @@ def make_train(config):
                 **loss_info,
                 "update_step": update_step,
                 "env_step": update_step * config["NUM_STEPS"] * config["NUM_ENVS"],
+                "train_state": update_state.train_state,
             }
             runner_state = RunnerState(
                 train_state=update_state.train_state,
@@ -454,6 +466,85 @@ def make_train(config):
 
     return train
 
+def make_evaluation(config):
+    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+    config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
+    config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
+    env = LogWrapper(env, replace_info=True)
+    max_steps = env.episode_length
+
+    def run_evaluation(rng, train_state):
+        rng_reset, rng_env = jax.random.split(rng)
+        rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
+        obsv, env_state = jax.vmap(env.reset)(rngs_reset)
+        init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
+
+        runner_state = RunnerState(
+            train_state=train_state,
+            env_state=env_state,
+            last_obs=obsv,
+            last_done=init_dones,
+            update_step=0,
+            rng=rng_env,
+        )
+        def _env_step(runner_state, unused):
+            rng = runner_state.rng
+            obs_batch = batchify(runner_state.last_obs, env.agents)
+            avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
+            avail_actions = jax.lax.stop_gradient(
+                batchify(avail_actions, env.agents)
+            )
+            ac_in = (
+                obs_batch,
+                runner_state.last_done,
+                avail_actions
+            )
+            # SELECT ACTION
+            (actor_mean, actor_std), value = runner_state.train_state.apply_fn(
+                runner_state.train_state.params,
+                ac_in,
+            )
+            actor_std = jnp.expand_dims(actor_std, axis=1)
+            pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+            rng, act_rng = jax.random.split(rng)
+            action, log_prob = pi.sample_and_log_prob(seed=act_rng)
+            env_act = unbatchify(action, env.agents)
+
+            # STEP ENV
+            rng, _rng = jax.random.split(rng)
+            rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
+            obsv, env_state, reward, done, info = jax.vmap(env.step)(
+                rng_step, runner_state.env_state, env_act,
+            )
+            done_batch = batchify(done, env.agents)
+            info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
+            eval_info = EvalInfo(
+                env_state=env_state,
+                done=done,
+                action=action,
+                value=value,
+                reward=reward,
+                log_prob=log_prob,
+                obs=obs_batch,
+                info=info,
+                avail_actions=avail_actions,
+            )
+            runner_state = RunnerState(
+                train_state=runner_state.train_state,
+                env_state=env_state,
+                last_obs=obsv,
+                last_done=done_batch,
+                update_step=runner_state.update_step,
+                rng=rng,
+            )
+            return runner_state, eval_info
+
+        _, eval_info = jax.lax.scan(
+            _env_step, runner_state, None, max_steps
+        )
+
+        return eval_info
+    return env, run_evaluation
 
 @hydra.main(version_base=None, config_path="config", config_name="ippo_ff_mabrax")
 def main(config):

@@ -1,3 +1,7 @@
+defaults:
+  - network: rnn_ps
+  - _self_
+
 ENV_NAME: ant_4x2
 ENV_KWARGS:
   ctrl_cost_weight: 0

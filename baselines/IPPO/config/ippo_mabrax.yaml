@@ -2,23 +2,19 @@ defaults:
   - network: ff_ps
   - _self_
 
-ENV_NAME: scratchitch
+ENV_NAME: ant_4x2
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
-  backend: mjx
-  disability:
-    joint_idx: 13
-    joint_restriction_factor: 1e-3
-TOTAL_TIMESTEPS: 1e7
-NUM_STEPS: 256
-NUM_ENVS: 256
+TOTAL_TIMESTEPS: 3000
+NUM_STEPS: 32
+NUM_ENVS: 16
 NUM_SEEDS: 1
 SEED: 0
 
 # NETWORK ARCHITECTURE
-ACTOR_HIDDEN_DIM: 128
-CRITIC_HIDDEN_DIM: 128
+EMBEDDING_DIM: 128
+GRU_HIDDEN_DIM: 128
 ACTIVATION: tanh
 
 # RL HYPERPARAMETERS
@@ -42,7 +38,7 @@ DISABLE_JIT: False
 DEVICE: 0
 
 # SWEEPER SETTINGS
-SWEEP:
+sweep:
   num_configs: 4
   lr:
     min: -4.0
@@ -57,4 +53,4 @@ hydra:
     dir: outputs/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:
     dir: multirun/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
-    subdir: ${SEED}
+    subdir: ${RATIO_CLIP_EPS}
