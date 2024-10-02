@@ -2,14 +2,21 @@ defaults:
   - network: ff_ps
   - _self_
 
-ENV_NAME: ant_4x2
+ENV_NAME: scratchitch
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
-TOTAL_TIMESTEPS: 3000
-NUM_STEPS: 32
-NUM_ENVS: 16
+  backend: mjx
+  disability:
+    joint_idx: 13
+    joint_restriction_factor: 1.0
+    joint_strength: 1.0
+    tremor_magnitude: 0.0
+TOTAL_TIMESTEPS: 3e7
+NUM_STEPS: 256
+NUM_ENVS: 512
 NUM_SEEDS: 1
+NUM_EVAL_EPISODES: 8
 SEED: 0
 
 # NETWORK ARCHITECTURE
@@ -53,4 +60,4 @@ hydra:
     dir: outputs/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:
     dir: multirun/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
-    subdir: ${RATIO_CLIP_EPS}
+    subdir: r${ENV_KWARGS.disability.joint_restriction_factor}_s${ENV_KWARGS.disability.joint_strength}_t${ENV_KWARGS.disability.tremor_magnitude}_${SEED}
