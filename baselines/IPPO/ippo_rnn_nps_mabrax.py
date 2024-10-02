@@ -521,7 +521,7 @@ def make_evaluation(config):
     env = LogWrapper(env, replace_info=True)
     max_steps = env.episode_length
 
-    def run_evaluation(rng, train_state):
+    def run_evaluation(rng, train_state, log_env_state=False):
         rng_reset, rng_env = jax.random.split(rng)
         rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
         obsv, env_state = jax.vmap(env.reset)(rngs_reset)
@@ -575,7 +575,7 @@ def make_evaluation(config):
             done_batch = batchify(done, env.agents)
             info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
             eval_info = EvalInfo(
-                env_state=env_state,
+                env_state=(env_state if log_env_state else None),
                 done=done,
                 action=action,
                 value=value,

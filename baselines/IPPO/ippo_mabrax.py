@@ -31,10 +31,7 @@ def _unstack_tree(pytree):
             for leaves in unstacked_leaves]
 
 def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
-    # TODO make sure this works for the NPS code.
-    episodes = _tree_take(pipeline_states, time_idx, axis=0)
-    episodes = _tree_take(episodes, eval_idx, axis=1)
-    dones = dones.take(time_idx, axis=0)
+    episodes = _tree_take(pipeline_states, eval_idx, axis=1)
     dones = dones.take(eval_idx, axis=1)
     return [
         state
@@ -42,13 +39,10 @@ def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
         if not (done)
     ]
 
-def _compute_eval_returns(eval_info, time_axis=-2):
-    # TODO make this work over the dict and return a dictionary of returns
-    # Currently assumes that last axis is batch axis
+def _compute_episode_returns(eval_info, time_axis=-2):
     episode_done = jnp.cumsum(eval_info.done["__all__"], axis=time_axis, dtype=bool)
     episode_rewards = eval_info.reward["__all__"] * (1-episode_done)
-    undiscounted_returns = episode_rewards.sum(axis=time_axis).mean(axis=-1)
-    # TODO add option for discounted_returns
+    undiscounted_returns = episode_rewards.sum(axis=time_axis)
     return undiscounted_returns
 
 
@@ -112,38 +106,42 @@ def main(config):
         eval_env, run_eval = make_evaluation(config)
         eval_jit = jax.jit(
             run_eval,
-            device=jax.devices()[config["DEVICE"]],
+            static_argnames=["log_env_state"],
         )
-        eval = jax.vmap(
-            eval_jit, in_axes=(None, 0),
-        )(eval_rng, _tree_take(all_train_states, 0, axis=0))
+        eval_all = jax.vmap(
+            eval_jit, in_axes=(None, 0, None),
+        )(eval_rng, _tree_take(all_train_states, 0, axis=0), False)
 
         # COMPUTE RETURNS
-        first_episode_done = jnp.cumsum(eval.done["__all__"], axis=1, dtype=bool)
-        first_episode_rewards = eval.reward["__all__"] * (1-first_episode_done)
-        first_episode_returns = first_episode_rewards.sum(axis=1)
-        episode_argsort = jnp.argsort(first_episode_returns, axis=-1)
-        worst_idx = episode_argsort.take(0,axis=-1)
-        best_idx = episode_argsort.take(-1, axis=-1)
-        median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
+        first_episode_returns = _compute_episode_returns(eval_all)
         mean_episode_returns = first_episode_returns.mean(axis=-1)
 
         # SAVE RETURNS
         jnp.save("returns.npy", mean_episode_returns)
 
         # RENDER
+        # Run episodes for render (saving env_state at each timestep)
+        eval_final = eval_jit(eval_rng, _tree_take(final_train_state, 0, axis=0), True)
+        first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
+        first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
+        first_episode_returns = first_episode_rewards.sum(axis=0)
+        episode_argsort = jnp.argsort(first_episode_returns, axis=-1)
+        worst_idx = episode_argsort.take(0,axis=-1)
+        best_idx = episode_argsort.take(-1, axis=-1)
+        median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
+
         from brax.io import html
         worst_episode = _take_episode(
-            eval.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=worst_idx[-1],
+            eval_final.env_state.env_state.pipeline_state, first_episode_done,
+            time_idx=-1, eval_idx=worst_idx,
         )
         median_episode = _take_episode(
-            eval.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=median_idx[-1],
+            eval_final.env_state.env_state.pipeline_state, first_episode_done,
+            time_idx=-1, eval_idx=median_idx,
         )
         best_episode = _take_episode(
-            eval.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=best_idx[-1],
+            eval_final.env_state.env_state.pipeline_state, first_episode_done,
+            time_idx=-1, eval_idx=best_idx,
         )
         html.save("final_worst.html", eval_env.sys, worst_episode)
         html.save("final_median.html", eval_env.sys, median_episode)
