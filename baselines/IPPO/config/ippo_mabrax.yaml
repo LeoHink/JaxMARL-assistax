@@ -53,6 +53,12 @@ sweep:
   ent_coef: false
   clip_eps: false
 
+# CROSSPLAY SETTINGS
+crossplay:
+  paths:
+    agent_0: /path/to/agent_0.safetensors
+    agent_1: /path/to/agent_1.safetensors
+
 hydra:
   job:
     chdir: true
