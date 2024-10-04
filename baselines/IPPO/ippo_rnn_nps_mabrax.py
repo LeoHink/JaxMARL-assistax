@@ -44,7 +44,14 @@ class ScannedRNN(nn.Module):
         cell = nn.GRUCell(features=hidden_size)
         return cell.initialize_carry(jax.random.PRNGKey(0), hidden_shape)
 
-class ActorCriticRNN(nn.Module):
+@functools.partial(
+    nn.vmap,
+    in_axes=0, out_axes=0,
+    variable_axes={"params": 0},
+    split_rngs={"params": True},
+    axis_name="agents",
+)
+class MultiActorCriticRNN(nn.Module):
     config: Dict
 
     @nn.compact
@@ -173,14 +180,6 @@ def make_train(config):
     def train(rng, lr, ent_coef, clip_eps):
 
         # INIT NETWORK
-        MultiActorCriticRNN = nn.vmap(
-            ActorCriticRNN,
-            in_axes=0, out_axes=0,
-            variable_axes={"params": 0},
-            split_rngs={"params": True},
-            axis_size=env.num_agents,
-            axis_name="agents",
-        )
         network = MultiActorCriticRNN(config=config)
         rng, network_rng = jax.random.split(rng)
         init_x = (

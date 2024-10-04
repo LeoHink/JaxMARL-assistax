@@ -16,8 +16,16 @@ import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict
 
+import functools
 
-class ActorCritic(nn.Module):
+@functools.partial(
+    nn.vmap,
+    in_axes=0, out_axes=0,
+    variable_axes={"params": 0},
+    split_rngs={"params": True},
+    axis_name="agents",
+)
+class MultiActorCritic(nn.Module):
     config: Dict
 
     @nn.compact
@@ -145,14 +153,6 @@ def make_train(config):
     def train(rng, lr, ent_coef, clip_eps):
 
         # INIT NETWORK
-        MultiActorCritic = nn.vmap(
-            ActorCritic,
-            in_axes=0, out_axes=0,
-            variable_axes={"params": 0},
-            split_rngs={"params": True},
-            axis_size=env.num_agents,
-            axis_name="agents",
-        )
         network = MultiActorCritic(config=config)
         rng, network_rng = jax.random.split(rng)
         init_x = (
