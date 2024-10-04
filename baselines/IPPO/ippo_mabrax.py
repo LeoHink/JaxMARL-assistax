@@ -91,16 +91,28 @@ def main(config):
         )
 
         # SAVE PARAMS
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
         all_train_states = out["metrics"]["train_state"]
         final_train_state = out["runner_state"].train_state
         safetensors.flax.save_file(
             flatten_dict(all_train_states.params, sep='/'),
             "all_params.safetensors"
         )
-        safetensors.flax.save_file(
-            flatten_dict(final_train_state.params, sep='/'),
-            "final_params.safetensors"
-        )
+        if config["network"]["agent_param_sharing"]:
+            safetensors.flax.save_file(
+                flatten_dict(final_train_state.params, sep='/'),
+                "final_params.safetensors"
+            )
+        else:
+            # split by agent
+            split_params = _unstack_tree(
+                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state.params)
+            )
+            for agent, params in zip(env.agents, split_params):
+                safetensors.flax.save_file(
+                    flatten_dict(params, sep='/'),
+                    f"{agent}.safetensors",
+                )
 
         # RUN EVALUATION
         eval_env, run_eval = make_evaluation(config)
