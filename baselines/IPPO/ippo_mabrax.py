@@ -1,5 +1,6 @@
 import os
 import time
+from tqdm import tqdm
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -26,9 +27,31 @@ def _tree_shape(pytree):
 
 def _unstack_tree(pytree):
     leaves, treedef = jax.tree_util.tree_flatten(pytree)
-    unstacked_leaves = list(zip(*leaves))
+    unstacked_leaves = zip(*leaves)
     return [jax.tree_util.tree_unflatten(treedef, leaves)
             for leaves in unstacked_leaves]
+
+def _stack_tree(pytree_list, axis=0):
+    return jax.tree.map(
+        lambda *leaf: jnp.stack(leaf, axis=axis),
+        *pytree_list
+    )
+
+def _concat_tree(pytree_list, axis=0):
+    return jax.tree.map(
+        lambda *leaf: jnp.concat(leaf, axis=axis),
+        *pytree_list
+    )
+
+def _tree_split(pytree, n, axis=0):
+    leaves, treedef = jax.tree.flatten(pytree)
+    split_leaves = zip(
+        *jax.tree.map(lambda x: jnp.array_split(x,n,axis), leaves)
+    )
+    return [
+        jax.tree.unflatten(treedef, leaves)
+        for leaves in split_leaves
+    ]
 
 def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
     episodes = _tree_take(pipeline_states, eval_idx, axis=1)
@@ -115,14 +138,31 @@ def main(config):
                 )
 
         # RUN EVALUATION
+        # Assume the first 2 dimensions are batch dims
+        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:2]
+        n_sequential_evals = int(jnp.ceil(
+            config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
+            / config["GPU_ENV_CAPACITY"]
+        ))
+        flat_trainstate = jax.tree.map(
+            lambda x: x.reshape((x.shape[0]*x.shape[1],*x.shape[2:])),
+            all_train_states
+        )
+        split_trainstate = _tree_split(flat_trainstate, n_sequential_evals)
         eval_env, run_eval = make_evaluation(config)
         eval_jit = jax.jit(
             run_eval,
             static_argnames=["log_env_state"],
         )
-        eval_all = jax.vmap(
-            eval_jit, in_axes=(None, 0, None),
-        )(eval_rng, _tree_take(all_train_states, 0, axis=0), False)
+        eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
+        evals = _concat_tree([
+            eval_vmap(eval_rng, ts, False)
+            for ts in tqdm(split_trainstate, desc="Evaluation batches")
+        ])
+        evals = jax.tree.map(
+            lambda x: x.reshape((*batch_dims, *x.shape[1:])),
+            evals
+        )
 
         # COMPUTE RETURNS
         first_episode_returns = _compute_episode_returns(eval_all)
