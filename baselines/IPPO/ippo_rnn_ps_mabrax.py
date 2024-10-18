@@ -188,7 +188,7 @@ def make_train(config):
             ),
         )
         init_hstate = jnp.zeros(
-            (env.num_agents*config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
+            (env.num_agents*config["NUM_ENVS"], config["network"]["gru_hidden_dim"])
         )
         network_params = network.init(network_rng, init_hstate, init_x)
         if config["ANNEAL_LR"]:
@@ -516,7 +516,7 @@ def make_evaluation(config):
         obsv, env_state = jax.vmap(env.reset)(rngs_reset)
         init_dones = jnp.zeros((env.num_agents*config["NUM_EVAL_EPISODES"],), dtype=bool)
         init_hstate = jnp.zeros(
-            (env.num_agents*config["NUM_EVAL_EPISODES"], config["GRU_HIDDEN_DIM"])
+            (env.num_agents*config["NUM_EVAL_EPISODES"], config["network"]["gru_hidden_dim"])
         )
         runner_state = RunnerState(
             train_state=train_state,
