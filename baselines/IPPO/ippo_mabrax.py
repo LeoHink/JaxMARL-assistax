@@ -144,11 +144,14 @@ def main(config):
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
             / config["GPU_ENV_CAPACITY"]
         ))
-        flat_trainstate = jax.tree.map(
-            lambda x: x.reshape((x.shape[0]*x.shape[1],*x.shape[2:])),
-            all_train_states
-        )
-        split_trainstate = _tree_split(flat_trainstate, n_sequential_evals)
+        def _flatten_and_split_trainstate(trainstate):
+            # We define this operation and JIT it for memory reasons
+            flat_trainstate = jax.tree.map(
+                lambda x: x.reshape((x.shape[0]*x.shape[1],*x.shape[2:])),
+                trainstate
+            )
+            return _tree_split(flat_trainstate, n_sequential_evals)
+        split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
         eval_env, run_eval = make_evaluation(config)
         eval_jit = jax.jit(
             run_eval,
