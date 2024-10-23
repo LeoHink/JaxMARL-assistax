@@ -168,7 +168,7 @@ def main(config):
         )
 
         # COMPUTE RETURNS
-        first_episode_returns = _compute_episode_returns(eval_all)
+        first_episode_returns = _compute_episode_returns(evals)
         mean_episode_returns = first_episode_returns.mean(axis=-1)
 
         # SAVE RETURNS
