@@ -37,6 +37,12 @@ def _unstack_tree(pytree):
     return [jax.tree_util.tree_unflatten(treedef, leaves)
             for leaves in unstacked_leaves]
 
+def _stack_tree(pytree_list, axis=0):
+    return jax.tree.map(
+        lambda *leaf: jnp.stack(leaf, axis=axis),
+        *pytree_list
+    )
+
 def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
     # TODO make sure this works for the NPS code.
     episodes = _tree_take(pipeline_states, time_idx, axis=0)
@@ -50,16 +56,25 @@ def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
     ]
 
 def _compute_episode_returns(eval_info, time_axis=-2):
-    episode_done = jnp.cumsum(eval_info.done["__all__"], axis=time_axis, dtype=bool)
-    episode_rewards = eval_info.reward["__all__"] * (1-episode_done)
-    undiscounted_returns = episode_rewards.sum(axis=time_axis)
+    done_arr = eval_info.done["__all__"]
+    first_timestep = [slice(None) for _ in range(done_arr.ndim)]
+    first_timestep[time_axis] = 0
+    episode_done = jnp.cumsum(done_arr, axis=time_axis, dtype=bool)
+    episode_done = jnp.roll(episode_done, 1, axis=time_axis)
+    episode_done = episode_done.at[tuple(first_timestep)].set(False)
+    undiscounted_returns = jax.tree.map(
+        lambda r: (r*(1-episode_done)).sum(axis=time_axis),
+        eval_info.reward
+    )
     return undiscounted_returns
+
+ 
 
 
 
 @hydra.main(version_base=None, config_path="config", config_name="ippo_mabrax")
 def main(config):
-    config = OmegaConf.to_container(config)
+    config = OmegaConf.to_container(config, resolve=True)
 
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
@@ -100,7 +115,7 @@ def main(config):
         def cross_evaluate(rng, params):
             spliced_params = jax.tree.map(
                 lambda *p: jnp.stack(p, axis=0),
-                *params.values()
+                *(params[a] for a in env.agents)
             )
             # network & train state
             eval_network_state = EvalNetworkState(
@@ -112,13 +127,13 @@ def main(config):
         xeval = jax.vmap(
             jax.vmap(
                 cross_evaluate,
-                in_axes=(None, {"agent_0": 0, "agent_1": None}),
+                in_axes=(None, {"robot": 0, "human": None}),
             ),
-            in_axes=(None, {"agent_0": None, "agent_1": 0}),
+            in_axes=(None, {"robot": None, "human": 0}),
         )(eval_rng, agent_params)
 
         first_episode_returns = _compute_episode_returns(xeval)
-        mean_episode_returns = first_episode_returns.mean(axis=-1)
+        mean_episode_returns = first_episode_returns["__all__"].mean(axis=-1)
         jnp.save("xreturns.npy", mean_episode_returns)
 
 
