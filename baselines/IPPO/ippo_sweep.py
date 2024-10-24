@@ -16,6 +16,7 @@ from jaxmarl.wrappers.baselines import LogWrapper
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict
+from base64 import urlsafe_b64encode
 
 
 
@@ -154,7 +155,7 @@ def main(config):
             from ippo_rnn_ps_mabrax import make_evaluation as make_evaluation
 
     rng = jax.random.PRNGKey(config["SEED"])
-    train_rng, eval_rng = jax.random.split(rng)
+    train_rng, eval_rng, sweep_rng = jax.random.split(rng, 3)
     train_rngs = jax.random.split(train_rng, config["NUM_SEEDS"])    
     sweep = _generate_sweep_axes(sweep_rng, config)
     with jax.disable_jit(config["DISABLE_JIT"]):

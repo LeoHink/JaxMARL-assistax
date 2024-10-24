@@ -16,21 +16,13 @@ import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict
 
-import functools
 
-@functools.partial(
-    nn.vmap,
-    in_axes=0, out_axes=0,
-    variable_axes={"params": 0},
-    split_rngs={"params": True},
-    axis_name="agents",
-)
-class MultiActorCritic(nn.Module):
+class ActorCritic(nn.Module):
     config: Dict
 
     @nn.compact
     def __call__(self, x):
-        if self.config["network"]["activation"] == "relu":
+        if self.config["ACTIVATION"] == "relu":
             activation = nn.relu
         else:
             activation = nn.tanh
@@ -38,13 +30,13 @@ class MultiActorCritic(nn.Module):
         obs, done, avail_actions = x
 
         actor_mean = nn.Dense(
-            self.config["network"]["actor_hidden_dim"],
+            self.config["ACTOR_HIDDEN_DIM"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0),
         )(obs)
         actor_mean = activation(actor_mean)
         actor_mean = nn.Dense(
-            self.config["network"]["actor_hidden_dim"],
+            self.config["ACTOR_HIDDEN_DIM"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0)
         )(actor_mean)
@@ -62,13 +54,13 @@ class MultiActorCritic(nn.Module):
         pi = (actor_mean, jnp.exp(actor_log_std))
 
         critic = nn.Dense(
-            self.config["network"]["critic_hidden_dim"],
+            self.config["CRITIC_HIDDEN_DIM"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0),
         )(obs)
         critic = activation(critic)
         critic = nn.Dense(
-            self.config["network"]["critic_hidden_dim"],
+            self.config["CRITIC_HIDDEN_DIM"],
             kernel_init=orthogonal(jnp.sqrt(2)),
             bias_init=constant(0.0),
         )(critic)
@@ -111,17 +103,6 @@ class UpdateBatch(NamedTuple):
     advantages: jnp.ndarray
     targets: jnp.ndarray
 
-class EvalInfo(NamedTuple):
-    env_state: LogEnvState
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
-    obs: jnp.ndarray
-    info: jnp.ndarray
-    avail_actions: jnp.ndarray
-
 def batchify(qty: Dict[str, jnp.ndarray], agents: Sequence[str]) -> jnp.ndarray:
     """Convert dict of arrays to batched array."""
     return jnp.stack(tuple(qty[a] for a in agents))
@@ -131,7 +112,7 @@ def unbatchify(qty: jnp.ndarray, agents: Sequence[str]) -> Dict[str, jnp.ndarray
     # N.B. assumes the leading dimension is the agent dimension
     return dict(zip(agents, qty))
 
-def make_train(config, save_train_state=False):
+def make_train(config):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -153,6 +134,14 @@ def make_train(config, save_train_state=False):
     def train(rng, lr, ent_coef, clip_eps):
 
         # INIT NETWORK
+        MultiActorCritic = nn.vmap(
+            ActorCritic,
+            in_axes=0, out_axes=0,
+            variable_axes={"params": 0},
+            split_rngs={"params": True},
+            axis_size=env.num_agents,
+            axis_name="agents",
+        )
         network = MultiActorCritic(config=config)
         rng, network_rng = jax.random.split(rng)
         init_x = (
@@ -439,8 +428,6 @@ def make_train(config, save_train_state=False):
                 "update_step": update_step,
                 "env_step": update_step * config["NUM_STEPS"] * config["NUM_ENVS"],
             }
-            if save_train_state:
-                metric.update({"train_state": update_state.train_state})
             runner_state = RunnerState(
                 train_state=update_state.train_state,
                 env_state=runner_state.env_state,
@@ -467,133 +454,13 @@ def make_train(config, save_train_state=False):
 
     return train
 
-def make_evaluation(config):
-    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
-    config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
-    env = LogWrapper(env, replace_info=True)
-    max_steps = env.episode_length
-
-    def run_evaluation(rng, train_state, log_env_state=False):
-        rng_reset, rng_env = jax.random.split(rng)
-        rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
-        obsv, env_state = jax.vmap(env.reset)(rngs_reset)
-        init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
-
-        runner_state = RunnerState(
-            train_state=train_state,
-            env_state=env_state,
-            last_obs=obsv,
-            last_done=init_dones,
-            update_step=0,
-            rng=rng_env,
-        )
-        def _env_step(runner_state, unused):
-            rng = runner_state.rng
-            obs_batch = batchify(runner_state.last_obs, env.agents)
-            avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
-            avail_actions = jax.lax.stop_gradient(
-                batchify(avail_actions, env.agents)
-            )
-            ac_in = (
-                obs_batch,
-                runner_state.last_done,
-                avail_actions
-            )
-            # SELECT ACTION
-            (actor_mean, actor_std), value = runner_state.train_state.apply_fn(
-                runner_state.train_state.params,
-                ac_in,
-            )
-            actor_std = jnp.expand_dims(actor_std, axis=1)
-            pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-            rng, act_rng = jax.random.split(rng)
-            action, log_prob = pi.sample_and_log_prob(seed=act_rng)
-            env_act = unbatchify(action, env.agents)
-
-            # STEP ENV
-            rng, _rng = jax.random.split(rng)
-            rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
-            obsv, env_state, reward, done, info = jax.vmap(env.step)(
-                rng_step, runner_state.env_state, env_act,
-            )
-            done_batch = batchify(done, env.agents)
-            info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
-            eval_info = EvalInfo(
-                env_state=(env_state if log_env_state else None),
-                done=done,
-                action=action,
-                value=value,
-                reward=reward,
-                log_prob=log_prob,
-                obs=obs_batch,
-                info=info,
-                avail_actions=avail_actions,
-            )
-            runner_state = RunnerState(
-                train_state=runner_state.train_state,
-                env_state=env_state,
-                last_obs=obsv,
-                last_done=done_batch,
-                update_step=runner_state.update_step,
-                rng=rng,
-            )
-            return runner_state, eval_info
-
-        _, eval_info = jax.lax.scan(
-            _env_step, runner_state, None, max_steps
-        )
-
-        return eval_info
-    return env, run_evaluation
 
 @hydra.main(version_base=None, config_path="config", config_name="ippo_ff_mabrax")
 def main(config):
     config_key = hash(config) % 2**62
-    sweep_config = config.SWEEP
     config = OmegaConf.to_container(config)
     rng = jax.random.PRNGKey(config["SEED"])
-    hparam_rng, run_rng = jax.random.split(rng, 2)
-    # generate hyperparams
-    NUM_HPARAM_CONFIGS = sweep_config.num_configs
-    lr_rng, ent_coef_rng, clip_eps_rng = jax.random.split(hparam_rng, 3)
-
-    if sweep_config.get("lr", False):
-        lrs = 10**jax.random.uniform(
-            lr_rng,
-            shape=(NUM_HPARAM_CONFIGS,),
-            minval=sweep_config.lr.min,
-            maxval=sweep_config.lr.max,
-        )
-        lr_axis = 0
-    else:
-        lrs = config["LR"]
-        lr_axis = None
-
-    if sweep_config.get("ent_coef", False):
-        ent_coefs = 10**jax.random.uniform(
-            ent_coef_rng,
-            shape=(NUM_HPARAM_CONFIGS,),
-            minval=sweep_config.ent_coef.min,
-            maxval=sweep_config.ent_coef.max,
-        )
-        ent_coef_axis = 0
-    else:
-        ent_coefs = config["ENT_COEF"]
-        ent_coef_axis = None
-
-    if sweep_config.get("clip_eps", False):
-        clip_epss = 10**jax.random.uniform(
-            clip_eps_rng,
-            shape=(NUM_HPARAM_CONFIGS,),
-            minval=sweep_config.clip_eps.min,
-            maxval=sweep_config.clip_eps.max,
-        )
-        clip_eps_axis = 0
-    else:
-        clip_epss = config["CLIP_EPS"]
-        clip_eps_axis = None
-
+    rng, run_rng = jax.random.split(rng, 2)
     run_rngs = jax.random.split(run_rng, config["NUM_SEEDS"])
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(
@@ -601,24 +468,11 @@ def main(config):
             device=jax.devices()[config["DEVICE"]]
         )
         out = jax.vmap(
-            jax.vmap(
-                train_jit,
-                in_axes=(0, None, None, None),
-            ),
-            in_axes=(None, lr_axis, ent_coef_axis, clip_eps_axis)
-        )(run_rngs, lrs, ent_coefs, clip_epss)
-    jnp.save(f"metrics_{config_key}.npy", out["metrics"], allow_pickle=True)
-    jnp.save(f"hparams_{config_key}.npy", {
-        "lr": lrs,
-        "ent_coef": ent_coefs,
-        "clip_eps": clip_epss,
-        "ratio_clip_eps": config["RATIO_CLIP_EPS"],
-        "num_steps": config["NUM_STEPS"],
-        "num_envs": config["NUM_ENVS"],
-        "update_epochs": config["UPDATE_EPOCHS"],
-        "num_minibatches": config["NUM_MINIBATCHES"],
-        }
-    )
+            train_jit,
+            in_axes=(0, None, None, None),
+        )(run_rngs, config["LR"], config["ENT_COEF"], config["CLIP_EPS"])
+    jnp.save(f"metrics.npy", out["metrics"], allow_pickle=True)
+    jnp.save(f"params.npy", out["runner_state"].train_state.params, allow_pickle=True)
 
 
 if __name__ == "__main__":

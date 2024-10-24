@@ -152,7 +152,7 @@ def unbatchify(qty: jnp.ndarray, agents: Sequence[str]) -> Dict[str, jnp.ndarray
     # N.B. assumes the leading dimension is the agent dimension
     return dict(zip(agents, jnp.split(qty, len(agents))))
 
-def make_train(config):
+def make_train(config, save_train_state=False):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -473,8 +473,9 @@ def make_train(config):
                 **loss_info,
                 "update_step": update_step,
                 "env_step": update_step * config["NUM_STEPS"] * config["NUM_ENVS"],
-                "train_state": update_state.train_state,
             }
+            if save_train_state:
+                metric.update({"train_state": update_state.train_state})
             runner_state = RunnerState(
                 train_state=update_state.train_state,
                 env_state=runner_state.env_state,

@@ -101,7 +101,7 @@ def main(config):
     train_rngs = jax.random.split(train_rng, config["NUM_SEEDS"])    
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(
-            make_train(config),
+            make_train(config, save_train_state=True),
             device=jax.devices()[config["DEVICE"]]
         )
         # first run (includes JIT)
