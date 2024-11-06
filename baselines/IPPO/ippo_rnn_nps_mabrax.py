@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 import jax.numpy as jnp
+from flax import struct
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 import optax
@@ -151,7 +152,7 @@ class EvalInfo(NamedTuple):
     avail_actions: Optional[jnp.ndarray]
 
 @struct.dataclass
-class EvalInfoLogConfig(NamedTuple):
+class EvalInfoLogConfig:
     env_state: bool = True
     done: bool = True
     action: bool = True

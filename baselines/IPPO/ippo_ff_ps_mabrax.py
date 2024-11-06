@@ -116,7 +116,7 @@ class EvalInfo(NamedTuple):
     avail_actions: Optional[jnp.ndarray]
 
 @struct.dataclass
-class EvalInfoLogConfig(NamedTuple):
+class EvalInfoLogConfig:
     env_state: bool = True
     done: bool = True
     action: bool = True
