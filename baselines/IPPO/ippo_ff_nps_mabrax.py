@@ -5,6 +5,7 @@ Based on the PureJaxRL Implementation of PPO
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from flax import struct
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 import optax
@@ -14,7 +15,7 @@ from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper
 import hydra
 from omegaconf import OmegaConf
-from typing import Sequence, NamedTuple, Any, Dict
+from typing import Sequence, NamedTuple, Any, Dict, Optional
 
 import functools
 
@@ -112,15 +113,27 @@ class UpdateBatch(NamedTuple):
     targets: jnp.ndarray
 
 class EvalInfo(NamedTuple):
-    env_state: LogEnvState
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
-    obs: jnp.ndarray
-    info: jnp.ndarray
-    avail_actions: jnp.ndarray
+    env_state: Optional[LogEnvState]
+    done: Optional[jnp.ndarray]
+    action: Optional[jnp.ndarray]
+    value: Optional[jnp.ndarray]
+    reward: Optional[jnp.ndarray]
+    log_prob: Optional[jnp.ndarray]
+    obs: Optional[jnp.ndarray]
+    info: Optional[jnp.ndarray]
+    avail_actions: Optional[jnp.ndarray]
+
+@struct.dataclass
+class EvalInfoLogConfig(NamedTuple):
+    env_state: bool = True
+    done: bool = True
+    action: bool = True
+    value: bool = True
+    reward: bool = True
+    log_prob: bool = True
+    obs: bool = True
+    info: bool = True
+    avail_actions: bool = True
 
 def batchify(qty: Dict[str, jnp.ndarray], agents: Sequence[str]) -> jnp.ndarray:
     """Convert dict of arrays to batched array."""
@@ -474,7 +487,7 @@ def make_evaluation(config):
     env = LogWrapper(env, replace_info=True)
     max_steps = env.episode_length
 
-    def run_evaluation(rng, train_state, log_env_state=False):
+    def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig()):
         rng_reset, rng_env = jax.random.split(rng)
         rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
         obsv, env_state = jax.vmap(env.reset)(rngs_reset)
@@ -520,15 +533,15 @@ def make_evaluation(config):
             done_batch = batchify(done, env.agents)
             info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
             eval_info = EvalInfo(
-                env_state=(env_state if log_env_state else None),
-                done=done,
-                action=action,
-                value=value,
-                reward=reward,
-                log_prob=log_prob,
-                obs=obs_batch,
-                info=info,
-                avail_actions=avail_actions,
+                env_state=(env_state if log_eval_info.env_state else None),
+                done=(done if log_eval_info.done else None),
+                action=(action if log_eval_info.action else None),
+                value=(value if log_eval_info.value else None),
+                reward=(reward if log_eval_info.reward else None),
+                log_prob=(log_prob if log_eval_info.log_prob else None),
+                obs=(obs_batch if log_eval_info.obs else None),
+                info=(info if log_eval_info.info else None),
+                avail_actions=(avail_actions if log_eval_info.avail_actions else None),
             )
             runner_state = RunnerState(
                 train_state=runner_state.train_state,

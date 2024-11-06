@@ -42,11 +42,11 @@ def _unstack_tree(pytree):
     return [jax.tree_util.tree_unflatten(treedef, leaves)
             for leaves in unstacked_leaves]
 
-# def _stack_tree(pytree_list, axis=0):
-#     return jax.tree.map(
-#         lambda *leaf: jnp.stack(leaf, axis=axis),
-#         *pytree_list
-#     )
+def _stack_tree(pytree_list, axis=0):
+    return jax.tree.map(
+        lambda *leaf: jnp.stack(leaf, axis=axis),
+        *pytree_list
+    )
 
 def _concat_tree(pytree_list, axis=0):
     return jax.tree.map(
@@ -64,14 +64,14 @@ def _tree_split(pytree, n, axis=0):
         for leaves in split_leaves
     ]
 
-# def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
-#     episodes = _tree_take(pipeline_states, eval_idx, axis=1)
-#     dones = dones.take(eval_idx, axis=1)
-#     return [
-#         state
-#         for state, done in zip(_unstack_tree(episodes), dones)
-#         if not (done)
-#     ]
+def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
+    episodes = _tree_take(pipeline_states, eval_idx, axis=1)
+    dones = dones.take(eval_idx, axis=1)
+    return [
+        state
+        for state, done in zip(_unstack_tree(episodes), dones)
+        if not (done)
+    ]
 
 def _compute_episode_returns(eval_info, time_axis=-2):
     done_arr = eval_info.done["__all__"]
@@ -94,20 +94,20 @@ def main(config):
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
         case (False, False):
+            from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_ff_nps_mabrax import MultiActorCritic as NetworkArch
-            from ippo_ff_nps_mabrax import make_evaluation as make_evaluation
-        # make sure that all of these are called MultiActorCritic
         case (False, True):
+            from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_ff_ps_mabrax import ActorCritic as NetworkArch
-            from ippo_ff_ps_mabrax import make_evaluation as make_evaluation
         case (True, False):
+            from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_rnn_nps_mabrax import MultiActorCriticRNN as NetworkArch
-            from ippo_rnn_nps_mabrax import make_evaluation as make_evaluation
         case (True, True):
+            from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_rnn_ps_mabrax import ActorCriticRNN as NetworkArch
-            from ippo_rnn_ps_mabrax import make_evaluation as make_evaluation
+        case _:
+            raise Exception
 
-    
     rng = jax.random.PRNGKey(config["SEED"])
     rng, eval_rng = jax.random.split(rng)
     with jax.disable_jit(config["DISABLE_JIT"]):
@@ -117,7 +117,7 @@ def main(config):
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
             / config["GPU_ENV_CAPACITY"]
         ))
-        
+
         def _flatten_and_split_trainstate(trainstate):
                 # We define this operation and JIT it for memory reasons
                 flat_trainstate = jax.tree.map(
@@ -125,19 +125,30 @@ def main(config):
                     trainstate
                 )
                 return _tree_split(flat_trainstate, n_sequential_evals)
-        
+
         eval_env, run_eval = make_evaluation(config)
-        eval_jit = jax.jit(run_eval, 
-                        static_argnames=["log_env_state"],
-                        )
+        eval_log_config = EvalInfoLogConfig(
+            env_state=False,
+            done=True,
+            action=False,
+            value=False,
+            reward=True,
+            log_prob=False,
+            obs=False,
+            info=False,
+            avail_actions=False,
+        )
+        eval_jit = jax.jit(
+            run_eval,
+            static_argnames=["log_eval_info"],
+        )
         network = NetworkArch(config=config)
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
         def eval_mem_efficient():
-            eval_network_state = EvalNetworkState(apply_fn=network.apply, params=all_train_states) 
+            eval_network_state = EvalNetworkState(apply_fn=network.apply, params=all_train_states)
             split_trainstate = _flatten_and_split_trainstate(eval_network_state)
-            # breakpoint()
             evals = _concat_tree([
-                eval_vmap(eval_rng, ts, False)
+                eval_vmap(eval_rng, ts, eval_log_config)
                 for ts in tqdm(split_trainstate, desc="Evaluation batches")
             ])
             evals = jax.tree.map(

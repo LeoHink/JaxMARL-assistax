@@ -56,37 +56,51 @@ def main(config):
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
         case (False, False):
+            from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_ff_nps_mabrax import MultiActorCritic as NetworkArch
-            from ippo_ff_nps_mabrax import make_evaluation as make_evaluation
-        # make sure that all of these are called MultiActorCritic
         case (False, True):
+            from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_ff_ps_mabrax import ActorCritic as NetworkArch
-            from ippo_ff_ps_mabrax import make_evaluation as make_evaluation
         case (True, False):
+            from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_rnn_nps_mabrax import MultiActorCriticRNN as NetworkArch
-            from ippo_rnn_nps_mabrax import make_evaluation as make_evaluation
         case (True, True):
+            from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_rnn_ps_mabrax import ActorCriticRNN as NetworkArch
-            from ippo_rnn_ps_mabrax import make_evaluation as make_evaluation
+        case _:
+            raise Exception
 
     rng = jax.random.PRNGKey(config["SEED"])
     rng, eval_rng = jax.random.split(rng)
-    
     with jax.disable_jit(config["DISABLE_JIT"]):
-
-        all_train_states = unflatten_dict(safetensors.flax.load_file(config["eval"]["path"]), sep='/')
-
-                
+        all_train_states = unflatten_dict(
+            safetensors.flax.load_file(config["eval"]["path"]), sep='/'
+        )
         eval_env, run_eval = make_evaluation(config)
-        eval_jit = jax.jit(run_eval, 
-                        static_argnames=["log_env_state"],
-                        )
+        eval_log_config = EvalInfoLogConfig(
+            env_state=True,
+            done=True,
+            action=False,
+            value=False,
+            reward=True,
+            log_prob=False,
+            obs=False,
+            info=False,
+            avail_actions=False,
+        )
+        eval_jit = jax.jit(
+            run_eval,
+            static_argnames=["log_eval_info"],
+        )
         network = NetworkArch(config=config)
         # RENDER
         # Run episodes for render (saving env_state at each timestep)
         final_train_state = _tree_take(all_train_states, -1, axis=1)
-        final_eval_network_state = EvalNetworkState(apply_fn=network.apply, params=final_train_state)
-        eval_final = eval_jit(eval_rng, _tree_take(final_eval_network_state, 0, axis=0), True)
+        final_eval_network_state = EvalNetworkState(
+            apply_fn=network.apply,
+            params=final_train_state
+        )
+        eval_final = eval_jit(eval_rng, _tree_take(final_eval_network_state, 0, axis=0), eval_log_config)
         first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
         first_episode_returns = first_episode_rewards.sum(axis=0)
@@ -94,7 +108,6 @@ def main(config):
         worst_idx = episode_argsort.take(0,axis=-1)
         best_idx = episode_argsort.take(-1, axis=-1)
         median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
-        breakpoint()
 
         from brax.io import html
         worst_episode = _take_episode(

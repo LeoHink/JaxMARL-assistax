@@ -68,20 +68,16 @@ def main(config):
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
         case (False, False):
-            from ippo_ff_nps_mabrax import make_train as make_train
-            from ippo_ff_nps_mabrax import make_evaluation as make_evaluation
+            from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_ff_nps_mabrax import MultiActorCritic as NetworkArch
         case (False, True):
-            from ippo_ff_ps_mabrax import make_train as make_train
-            from ippo_ff_ps_mabrax import make_evaluation as make_evaluation
+            from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_ff_ps_mabrax import ActorCritic as NetworkArch
         case (True, False):
-            from ippo_rnn_nps_mabrax import make_train as make_train
-            from ippo_rnn_nps_mabrax import make_evaluation as make_evaluation
+            from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_rnn_nps_mabrax import MultiActorCriticRNN as NetworkArch
         case (True, True):
-            from ippo_rnn_ps_mabrax import make_train as make_train
-            from ippo_rnn_ps_mabrax import make_evaluation as make_evaluation
+            from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
             from ippo_rnn_ps_mabrax import ActorCriticRNN as NetworkArch
         case _:
             raise Exception
@@ -96,9 +92,20 @@ def main(config):
             for agent_name, path in config["crossplay"]["paths"].items()
         }
         eval_env, run_eval = make_evaluation(config)
+        eval_log_config = EvalInfoLogConfig(
+            env_state=True,
+            done=True,
+            action=False,
+            value=False,
+            reward=True,
+            log_prob=False,
+            obs=False,
+            info=False,
+            avail_actions=False,
+        )
         eval_jit = jax.jit(
             run_eval,
-            static_argnames=["log_env_state"],
+            static_argnames=["log_eval_info"],
         )
         network = NetworkArch(config=config)
         robot = _tree_take(
@@ -115,7 +122,7 @@ def main(config):
             apply_fn=network.apply,
             params=_stack_tree([robot, human]),
         )
-        xeval = eval_jit(eval_rng, team_network_state, True)
+        xeval = eval_jit(eval_rng, team_network_state, eval_log_config)
         first_episode_done = jnp.cumsum(xeval.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = xeval.reward["__all__"] * (1-first_episode_done)
         first_episode_returns = first_episode_rewards.sum(axis=0)
