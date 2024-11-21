@@ -54,8 +54,7 @@ class MABraxEnv(MultiAgentEnv):
         self.agent_obs_mapping = _agent_observation_mapping[env_name]
         self.agent_action_mapping = _agent_action_mapping[env_name]
         self.agents = list(self.agent_action_mapping.keys())
-
-        self.num_agents = len(self.agent_obs_mapping)
+        self.num_agents = len(self.agents)
         self.max_agent_obs_size = max(
             o.size 
             for a,o in self.agent_obs_mapping.items()
@@ -63,15 +62,17 @@ class MABraxEnv(MultiAgentEnv):
         )
         obs_sizes = {
             agent: (
+                # TODO move the global obs out of here and treat manually. It's wrong atm, and shouldn't have the extra num_agents indicator
                 self.num_agents + (
-                    0 if agent == "global"
-                    else  self.max_agent_obs_size if homogenisation_method == "max"
+                    self.max_agent_obs_size if homogenisation_method == "max"
                     else self.env.observation_size if homogenisation_method == "concat"
                     else obs.size
                 )
             )
             for agent, obs in self.agent_obs_mapping.items()
+            if not agent == "global"
         }
+        obs_sizes["global"] = self.agent_obs_mapping["global"].size
         act_sizes = {
             agent: max([a.size for a in self.agent_action_mapping.values()])
             if homogenisation_method == "max"
@@ -85,9 +86,9 @@ class MABraxEnv(MultiAgentEnv):
             agent: spaces.Box(
                 -jnp.inf,
                 jnp.inf,
-                shape=(obs_sizes,),
+                shape=(obs_size,),
             )
-            for agent, obs_sizes in self.obs_sizes.items()
+            for agent, obs_size in obs_sizes.items()
         }
         self.action_spaces = {
             agent: spaces.Box(
