@@ -568,10 +568,10 @@ def make_train(config, save_train_state=False):
 
 def make_evaluation(config):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+    env = MABRAXGobsWrapper(env)
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))
-    env = MABRAXGobsWrapper(env)
     env = LogWrapper(env, replace_info=True)
     max_steps = env.episode_length
 
