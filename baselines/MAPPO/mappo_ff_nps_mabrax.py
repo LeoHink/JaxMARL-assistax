@@ -405,8 +405,8 @@ def make_train(config, save_train_state=False):
                             (gae - gae.mean(axis=-1, keepdims=True))
                             / (gae.std(axis=-1, keepdims=True) + 1e-8)
                         )
-                        loss_actor1 = ratio * gae
-                        loss_actor2 = (
+                        pg_loss1 = ratio * gae
+                        pg_loss2 = (
                             jnp.clip(
                                 ratio,
                                 clip_eps_min,
@@ -414,7 +414,7 @@ def make_train(config, save_train_state=False):
                             )
                             * gae
                         )
-                        pg_loss = -jnp.minimum(loss_actor1, loss_actor2)
+                        pg_loss = -jnp.minimum(pg_loss1, pg_loss2)
                         pg_loss = pg_loss.mean(axis=-1)
                         entropy = pi.entropy().mean(axis=-1)
                         # debug metrics
