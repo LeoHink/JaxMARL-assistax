@@ -274,7 +274,7 @@ def make_train(config, save_train_state=False):
         )
         init_x_critic = (
             jnp.zeros( # obs
-                (1, config["NUM_ENVS"], config["OBS_DIM"])
+                (1, config["NUM_ENVS"], config["GOBS_DIM"])
             ),
             jnp.zeros( # done
                 (1, config["NUM_ENVS"])
