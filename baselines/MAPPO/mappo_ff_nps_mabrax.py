@@ -228,7 +228,7 @@ def make_train(config, save_train_state=False):
                 (env.num_agents, 1, config["ACT_DIM"])
             ),
         )
-        init_x_critic = jnp.zeros((1, 1, config["GOBS_DIM"]))
+        init_x_critic = jnp.zeros((1, config["GOBS_DIM"]))
         actor_network_params = actor_network.init(actor_rng, init_x_actor)
         critic_network_params = critic_network.init(critic_rng, init_x_critic)
         if config["ANNEAL_LR"]:
@@ -293,7 +293,7 @@ def make_train(config, save_train_state=False):
                     runner_state.last_done,
                     avail_actions
                 )
-                critic_in = jnp.expand_dims(runner_state.last_obs["global"], axis=0)
+                critic_in = runner_state.last_obs["global"]
                 # SELECT ACTION
                 actor_mean, actor_std = runner_state.train_state.actor.apply_fn(
                     runner_state.train_state.actor.params,
@@ -309,7 +309,7 @@ def make_train(config, save_train_state=False):
                 value = runner_state.train_state.critic.apply_fn(
                     runner_state.train_state.critic.params,
                     critic_in,
-                ).squeeze(0)
+                )
                 value = jnp.broadcast_to(value, (env.num_agents, *value.shape))
 
                 # STEP ENV
@@ -570,7 +570,9 @@ def make_evaluation(config):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
+    config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))
     env = LogWrapper(env, replace_info=True)
+    env = MABRAXGobsWrapper(env)
     max_steps = env.episode_length
 
     def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig()):
@@ -594,21 +596,30 @@ def make_evaluation(config):
             avail_actions = jax.lax.stop_gradient(
                 batchify(avail_actions, env.agents)
             )
-            ac_in = (
+            actor_in = (
                 obs_batch,
                 runner_state.last_done,
                 avail_actions
             )
+            critic_in = runner_state.last_obs["global"]
+
             # SELECT ACTION
-            (actor_mean, actor_std), value = runner_state.train_state.apply_fn(
-                runner_state.train_state.params,
-                ac_in,
+            actor_mean, actor_std = runner_state.train_state.actor.apply_fn(
+                runner_state.train_state.actor.params,
+                actor_in,
             )
             actor_std = jnp.expand_dims(actor_std, axis=1)
             pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
             rng, act_rng = jax.random.split(rng)
             action, log_prob = pi.sample_and_log_prob(seed=act_rng)
             env_act = unbatchify(action, env.agents)
+
+            # COMPUTE VALUE
+            value = runner_state.train_state.critic.apply_fn(
+                runner_state.train_state.critic.params,
+                critic_in,
+            )
+            value = jnp.broadcast_to(value, (env.num_agents, *value.shape))
 
             # STEP ENV
             rng, _rng = jax.random.split(rng)
