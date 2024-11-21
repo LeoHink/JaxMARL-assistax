@@ -416,7 +416,6 @@ def make_train(config, save_train_state=False):
             )
 
             # CALCULATE ADVANTAGE
-            last_obs_batch = batchify(runner_state.last_obs, env.agents)
             critic_in = (
                 # add time dimension to pass to RNN
                 jnp.expand_dims(runner_state.last_obs["global"], 0),
