@@ -13,37 +13,11 @@ from flax.training.train_state import TrainState
 import optax
 import distrax
 import jaxmarl
-from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState, JaxMARLWrapper
+from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper 
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict, Optional
-
-class MABRAXGobsWrapper(JaxMARLWrapper):
-    
-    @functools.partial(jax.jit, static_argnums=0)
-    def reset(self,
-              key):
-        obs, env_state = self._env.reset(key)
-        obs["global"] = obs["agent_0"]
-        return obs, env_state
-    
-    @functools.partial(jax.jit, static_argnums=0)
-    def step(self,
-             key,
-             state,
-             action):
-        obs, env_state, reward, done, info = self._env.step(
-            key, state, action
-        )
-        obs["global"] = obs["agent_0"]
-        return obs, env_state, reward, done, info
-
-    def observation_space(self, agent: str):
-        """Observation space for a given agent."""
-        if agent == "global":
-            return self.observation_spaces["agent_0"]
-        return self.observation_spaces[agent]
 
 class ScannedRNN(nn.Module):
     @functools.partial(
@@ -233,7 +207,6 @@ def unbatchify(qty: jnp.ndarray, agents: Sequence[str]) -> Dict[str, jnp.ndarray
 
 def make_train(config, save_train_state=False):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    env = MABRAXGobsWrapper(env)
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     )
@@ -671,7 +644,6 @@ def make_train(config, save_train_state=False):
 
 def make_evaluation(config):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    env = MABRAXGobsWrapper(env)
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))
