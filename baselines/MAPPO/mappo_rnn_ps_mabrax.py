@@ -672,11 +672,6 @@ def make_evaluation(config):
                 jnp.expand_dims(runner_state.last_done, 0),
                 jnp.expand_dims(avail_actions, 0),
             )
-            critic_in = (
-                # add time dimension to pass to RNN
-                jnp.expand_dims(global_obs, 0),
-                jnp.expand_dims(runner_state.last_all_done, 0),
-            )
 
             # SELECT ACTION
             actor_hstate, pi = runner_state.train_state.actor.apply_fn(
@@ -691,11 +686,19 @@ def make_evaluation(config):
             env_act = unbatchify(action, env.agents)
 
             # COMPUTE VALUE
-            critic_hstate, value = runner_state.train_state.critic.apply_fn(
-                runner_state.train_state.critic.params,
-                runner_state.hstate.critic, critic_in,
-            )
-            value = value.squeeze(0) # remove time dimension
+            if config["eval"]["compute_value"]:
+                critic_in = (
+                    # add time dimension to pass to RNN
+                    jnp.expand_dims(global_obs, 0),
+                    jnp.expand_dims(runner_state.last_all_done, 0),
+                )
+                critic_hstate, value = runner_state.train_state.critic.apply_fn(
+                    runner_state.train_state.critic.params,
+                    runner_state.hstate.critic, critic_in,
+                )
+                value = value.squeeze(0) # remove time dimension
+            else:
+                value = None
 
             # STEP ENV
             rng, _rng = jax.random.split(rng)

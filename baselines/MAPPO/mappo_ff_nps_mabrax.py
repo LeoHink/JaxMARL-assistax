@@ -573,7 +573,6 @@ def make_evaluation(config):
                 runner_state.last_done,
                 avail_actions
             )
-            critic_in = runner_state.last_obs["global"]
 
             # SELECT ACTION
             actor_mean, actor_std = runner_state.train_state.actor.apply_fn(
@@ -587,11 +586,15 @@ def make_evaluation(config):
             env_act = unbatchify(action, env.agents)
 
             # COMPUTE VALUE
-            value = runner_state.train_state.critic.apply_fn(
-                runner_state.train_state.critic.params,
-                critic_in,
-            )
-            value = jnp.broadcast_to(value, (env.num_agents, *value.shape))
+            if config["eval"]["compute_value"]:
+                critic_in = runner_state.last_obs["global"]
+                value = runner_state.train_state.critic.apply_fn(
+                    runner_state.train_state.critic.params,
+                    critic_in,
+                )
+                value = jnp.broadcast_to(value, (env.num_agents, *value.shape))
+            else:
+                value = None
 
             # STEP ENV
             rng, _rng = jax.random.split(rng)

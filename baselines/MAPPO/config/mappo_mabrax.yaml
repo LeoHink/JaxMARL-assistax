@@ -40,8 +40,9 @@ ADVANTAGE_UNROLL_DEPTH: 8
 DISABLE_JIT: False
 DEVICE: 0
 
-# EVAL TRAIN STATE
+# EVAL SETTINGS
 eval:
+  compute_value: false
   path: /path/to/all_params.safetensors
 
 # SWEEPER SETTINGS

@@ -553,7 +553,6 @@ def make_evaluation(config):
                 runner_state.last_done,
                 avail_actions
             )
-            critic_in = runner_state.last_obs["global"]
 
             # SELECT ACTION
             pi = runner_state.train_state.apply_fn(
@@ -565,11 +564,15 @@ def make_evaluation(config):
             env_act = unbatchify(action, env.agents)
 
             # COMPUTE VALUE
-            value = runner_state.train_state.critic.apply_fn(
-                runner_state.train_state.critic.params,
-                critic_in,
-            )
-            value = jnp.tile(value, env.num_agents)
+            if config["env"]["compute_value"]:
+                critic_in = runner_state.last_obs["global"]
+                value = runner_state.train_state.critic.apply_fn(
+                    runner_state.train_state.critic.params,
+                    critic_in,
+                )
+                value = jnp.tile(value, env.num_agents)
+            else:
+                value = None
 
             # STEP ENV
             rng, _rng = jax.random.split(rng)
