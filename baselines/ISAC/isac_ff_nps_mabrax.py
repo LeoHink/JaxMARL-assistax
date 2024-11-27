@@ -9,6 +9,7 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from tqdm import tqdm
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 from flax import struct
@@ -65,6 +66,17 @@ def _concat_tree(pytree_list, axis=0):
         lambda *leaf: jnp.concat(leaf, axis=axis),
         *pytree_list
     )
+
+
+def _tree_split(pytree, n, axis=0):
+    leaves, treedef = jax.tree.flatten(pytree)
+    split_leaves = zip(
+        *jax.tree.map(lambda x: jnp.array_split(x,n,axis), leaves)
+    )
+    return [
+        jax.tree.unflatten(treedef, leaves)
+        for leaves in split_leaves
+    ]
 
 def batchify(qty: Dict[str, jnp.ndarray], agents: Sequence[str]) -> jnp.ndarray:
     """Convert dict of arrays to batched array."""
@@ -303,16 +315,6 @@ class SACTrainStates(NamedTuple):
             alpha_opt_state=new_alpha_opt_state,    
         )
 
-    def soft_update_target(self, q1_target_params, q2_target_params, tau: float = 0.005):
-        """Performs soft update of target network parameters."""
-        new_q1_target = optax.incremental_update(
-            self.q1.params, q1_target_params, tau
-        )
-        new_q2_target = optax.incremental_update(
-            self.q2.params, q2_target_params, tau
-        )
-        return new_q1_target, new_q2_target
-
     @property
     def alpha(self):
         """Convenience property to get current temperature parameter."""
@@ -328,12 +330,31 @@ class RunnerState(NamedTuple):
     buffer_state: BufferState
     rng: jnp.ndarray
 
+class EvalState(NamedTuple):
+    train_states: SACTrainStates
+    env_state: LogEnvState
+    last_obs: Dict[str, jnp.ndarray]
+    last_done: jnp.ndarray
+    update_step: int
+    rng: jnp.ndarray
 
-def make_train(config, save_train_state=False): #TODO: implement the save_train_state thing
+class EvalInfo(NamedTuple):
+    env_state: LogEnvState
+    done: jnp.ndarray
+    action: jnp.ndarray
+    reward: jnp.ndarray
+    log_prob: jnp.ndarray
+    obs: jnp.ndarray
+    info: jnp.ndarray
+    avail_actions: jnp.ndarray
+
+
+def make_train(config, save_train_state=True): #TODO: implement the save_train_state thing
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     )
+    config["EXPLORE_STEPS"] = config["EXPLORE_STEPS"] // config["NUM_ENVS"]
     print(f"NUM_UPDATES: {config['NUM_UPDATES']}")
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
@@ -390,15 +411,24 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
             done=init_dones,
             next_obs=batchify(obsv, env.agents)
         )
-        jax.debug.print("obs shape: {x} \n action shape: {y} \n reward shape: {z} \n done shape: {a} \n next_obs shape: {b}", x=init_transition.obs.shape, y=init_transition.action.shape, z=init_transition.reward.shape, a=init_transition.done.shape, b=init_transition.next_obs.shape)
 
         rb = fbx.make_item_buffer(
-            max_length=int(config["BUFFER_SIZE"]),
-            min_length=int(config["EXPLORE_STEPS"]),
+            max_length=config["BUFFER_SIZE"]//config["NUM_ENVS"],
+            min_length=config["EXPLORE_STEPS"]//config["NUM_ENVS"],
             sample_batch_size=int(config["BATCH_SIZE"]),
             add_batches=True,
         )
-        buffer_state = rb.init(init_transition)
+
+
+        rb = fbx.make_item_buffer(
+            max_length=config["BUFFER_SIZE"]//config["NUM_ENVS"],
+            min_length=config["EXPLORE_STEPS"]//config["NUM_ENVS"],
+            sample_batch_size=int(config["BATCH_SIZE"]),
+            add_batches=True,
+        )
+                                                                                                                                                
+        # buffer_state = rb.init(_tree_take(init_transition, 0, axis=1))
+        buffer_state = rb.init(jax.tree.map(lambda x: jnp.moveaxis(x,1,0), init_transition))
 
         target_entropy = -config["TARGET_ENTROPY_SCALE"] * config["ACT_DIM"]
         # TODO: write the config
@@ -419,7 +449,6 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
 
         alpha_opt = optax.chain(grad_clip, optax.adam(config["ALPHA_LR"]))
         # alpha_opt_state = alpha_opt.init(params.log_alpha)
-
         
         batched_actor = jax.vmap(actor.apply, in_axes=(None, 0))
         batched_q = jax.vmap(q.apply, in_axes=(None, 0, 0))
@@ -447,6 +476,46 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
         )
         
         # TODO: implement an explore function here which does random exploration to fill replay buffer at beginnning of training
+        
+        def _explore(runner_state, unused):
+
+            
+            rng, explore_rng = jax.random.split(runner_state.rng)
+            avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
+            
+            avail_actions_shape = batchify(avail_actions, env.agents).shape
+            action = jax.random.uniform(explore_rng, avail_actions_shape)
+            env_act = unbatchify(action, env.agents)
+            rng_step = jax.random.split(explore_rng, config["NUM_ENVS"])
+           
+            obsv, env_state, reward, done, info = jax.vmap(env.step)(
+                    rng_step, runner_state.env_state, env_act,
+                )
+            
+            t = runner_state.t + config["NUM_ENVS"]
+            
+            obs_batch = batchify(runner_state.last_obs, env.agents)
+            done_batch = batchify(done, env.agents)
+
+            transition = Transition(
+                    obs = obs_batch,
+                    action = action,
+                    reward = batchify(reward, env.agents),
+                    done = done_batch,
+                    next_obs = batchify(obsv, env.agents),
+                )
+
+            runner_state = RunnerState(
+                train_states=runner_state.train_states,
+                env_state=env_state,
+                last_obs = obsv,
+                last_done=done_batch,
+                t = t,
+                buffer_state=runner_state.buffer_state,
+                rng=rng
+            )
+
+            return runner_state, transition # do I need info?
         
         def _update_step(runner_state, unused):
 
@@ -483,22 +552,22 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                 )
                 done_batch = batchify(done, env.agents)
                 info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
-                q1_value = runner_state.train_states.q1.apply_fn(
-                    runner_state.train_states.q1.params,
-                    ac_in, action)
-                q2_value = runner_state.train_states.q2.apply_fn(
-                    runner_state.train_states.q2.params,
-                    ac_in, action)
+                # q1_value = runner_state.train_states.q1.apply_fn(
+                #     runner_state.train_states.q1.params,
+                #     ac_in, action)
+                # q2_value = runner_state.train_states.q2.apply_fn(
+                #     runner_state.train_states.q2.params,
+                #     ac_in, action)
 
                 transition = Transition(
                     obs = obs_batch,
                     action = action,
                     reward = batchify(reward, env.agents),
                     done = done_batch,
-                    next_obs = batchify(obsv, env.agents)
+                    next_obs = batchify(obsv, env.agents),
                 )
 
-                buffer_state = rb.add(runner_state.buffer_state, transition)
+                # buffer_state = rb.add(runner_state.buffer_state, transition)
 
                 t = runner_state.t + 1
 
@@ -512,12 +581,20 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                     rng=rng,
                 )
 
-                return runner_state, transition
+                return runner_state, transition # I probably don't need to return transition with the rb
             
-            runner_state, traj_batch = jax.lax.scan(
+            runner_state, traj_batch  = jax.lax.scan(
                 _env_step, runner_state, None, config['NUM_STEPS']
             )
+            
+            # breakpoint()
+            # if I want to add the entire trajectory I need to initialize somewhat differently to give it (batch_size, trajectory_length) maybe when initializing
+            new_buffer_state = rb.add(
+                runner_state.buffer_state,
+                jax.tree.map(lambda x: jnp.moveaxis(x,2,1), traj_batch) # move batch axis to start
+            )
 
+            # buffer_state = rb.add(runner_state.buffer_state, transitions)
             def _update_networks(train_state, batch): 
 
                 #UPDATE Q_NETWORKS
@@ -536,7 +613,7 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                     # MSE loss for both Q-networks
                     q1_loss = jnp.mean(jnp.square(current_q1 - target_q))
                     q2_loss = jnp.mean(jnp.square(current_q2 - target_q))
-                    breakpoint()    
+  
                     return q1_loss + q2_loss, (q1_loss, q2_loss)
                 
                 # loss for the actor
@@ -567,7 +644,7 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                     
                     # actor loss with entropy
                     actor_loss = jnp.mean(alpha * log_prob - q_value)
-                    breakpoint()
+
                     return actor_loss, log_prob
                 
                 def alpha_loss_fn(log_alpha, log_pi, target_entropy):
@@ -575,37 +652,41 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                 
                 
                 # Q networks loss and gradient 
-                obs = batch.obs
-                dones = batch.done
-                action = batch.action
+                # Janky reshape to revert from buffer back to what we expect to see
+                obs = batch.obs.swapaxes(1, 2)
+                dones = batch.done.swapaxes(1, 2)
+                action = batch.action.swapaxes(1, 2)
+                next_obs = batch.next_obs.swapaxes(1, 2)
+                reward = batch.reward.swapaxes(1, 2)
+
                 rng, q_sample_rng, actor_update_rng = jax.random.split(runner_state.rng, 3)
                 avail_actions =  jnp.zeros( # avail_actions
                         (config["BATCH_SIZE"], env.num_agents, 1, config["ACT_DIM"])
                     ) # this is unused for assistax but useful in other implementations
-                
-                # batch_actor = jax.vmap(train_state.actor.apply_fn, in_axes=(None, 0))
+
                 next_act_mean, next_act_std = batched_actor(
                     train_state.actor.params, 
-                    (batch.next_obs, dones, avail_actions)) 
+                    (next_obs, dones, avail_actions)) 
                 next_pi_normal = distrax.Normal(next_act_mean, next_act_std)
                 next_pi_tanh_normal = distrax.Transformed(next_pi_normal, bijector=distrax.Tanh())
                 pi_tanh = distrax.Independent(next_pi_tanh_normal, 1)
                 next_action, next_log_prob = pi_tanh.sample_and_log_prob(seed=q_sample_rng)
                 next_env_act = unbatchify(next_action, env.agents)
-                # compute q target)
+                
+                # compute q target
                 next_q1 = batched_q(
                     train_state.q1_target, 
-                    (batch.next_obs, dones, avail_actions), next_action # double check is it next action or next_env_act? probs the latter
+                    (next_obs, dones, avail_actions), next_action # double check is it next action or next_env_act? probs the latter
                 )
                 next_q2 = batched_q(
                    train_state.q2_target, 
-                    (batch.next_obs, dones, avail_actions), next_action
+                    (next_obs, dones, avail_actions), next_action
                 )
         
                 next_q = jnp.minimum(next_q1, next_q2)
                 next_q = next_q - jnp.exp(train_state.log_alpha) * next_log_prob
 
-                target_q = batch.reward + config["GAMMA"] * (1.0 - dones) * next_q
+                target_q = reward + config["GAMMA"] * (1.0 - dones) * next_q
                 
                 q_grad_fun = jax.value_and_grad(q_loss_fn, has_aux=True)
                 (q_loss, (q1_loss, q2_loss)), q_grads = q_grad_fun(
@@ -616,8 +697,6 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                     action, 
                     target_q,
                     avail_actions,)
-
-                breakpoint()
 
                 # actor loss and gradient 
                 actor_grad_fun = jax.value_and_grad(actor_loss_fn, has_aux=True)
@@ -661,16 +740,20 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                     'alpha': jnp.exp(new_train_state.log_alpha),
                     'log_probs': log_probs.mean(),
                 }
-                
+
+                if save_train_state:
+                    metrics.update({"actor_train_state": new_train_state.actor})
+                    metrics.update({"q1_train_state": new_train_state.q1})
+                    metrics.update({"q2_train_state": new_train_state.q2})
+
                 return new_train_state, metrics
             
             # TODO: figure out how to implement updates per step i.e. how to update the networks multiple times per step
 
             _, sample_rng = jax.random.split(runner_state.rng)
 
-            batch = rb.sample(runner_state.buffer_state, sample_rng)
+            batch = rb.sample(new_buffer_state, sample_rng)
             train_state, metrics = _update_networks(runner_state.train_states, batch.experience)
-            
             
             runner_state = RunnerState(
                 train_states=train_state, # replace trainstate
@@ -678,21 +761,131 @@ def make_train(config, save_train_state=False): #TODO: implement the save_train_
                 last_obs=runner_state.last_obs,
                 last_done=runner_state.last_done,
                 t=runner_state.t,
-                buffer_state=runner_state.buffer_state,
+                buffer_state=new_buffer_state,
                 rng=runner_state.rng,
             )
-            
-            breakpoint()
+
             return runner_state, metrics
         
-        # init the runner state
+        # do explore scan here think about what this should output
+
+        explore_runner_state, explore_traj_batch = jax.lax.scan(
+            _explore, runner_state, None, config["EXPLORE_STEPS"]
+        )
+
+        explore_buffer_state = rb.add(
+            runner_state.buffer_state,
+            jax.tree.map(lambda x: jnp.moveaxis(x,2,1), explore_traj_batch) # move batch axis to start
+        )
+        
+        explore_runner_state = RunnerState(
+            train_states=runner_state.train_states,
+            env_state=runner_state.env_state,
+            last_obs=runner_state.last_obs,
+            last_done=runner_state.last_done,
+            t=runner_state.t,
+            buffer_state= explore_buffer_state,
+            rng=runner_state.rng
+        )
+        
         runner_state, metric = jax.lax.scan(
-            _update_step, runner_state, None, config["NUM_UPDATES"]
+            _update_step, explore_runner_state, None, config["NUM_UPDATES"]
         )
 
         return {"runner_state": runner_state, "metrics": metric}
 
     return train
+
+def make_evaluation(config):
+    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+    config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
+    config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
+    env = LogWrapper(env, replace_info=True)
+    max_steps = env.episode_length
+
+    def run_evaluation(rng, train_state, log_env_state=False):
+        rng_reset, rng_env = jax.random.split(rng)
+        rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
+        obsv, env_state = jax.vmap(env.reset)(rngs_reset)
+        init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
+
+        runner_state = EvalState(
+            train_states=train_state,
+            env_state=env_state,
+            last_obs=obsv,
+            last_done=init_dones,
+            update_step=0,
+            rng=rng_env,
+        )
+        def _env_step(runner_state, unused):
+            
+            rng = runner_state.rng
+            obs_batch = batchify(runner_state.last_obs, env.agents)
+            avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
+            avail_actions = jax.lax.stop_gradient(
+                batchify(avail_actions, env.agents)
+            )
+            ac_in = (obs_batch, runner_state.last_done, avail_actions)
+
+            # SELECT ACTION
+            
+            rng, action_rng = jax.random.split(rng)
+            (actor_mean, actor_std) = runner_state.train_states.apply_fn(
+                runner_state.train_states.params, 
+                ac_in
+                )
+                
+            pi_normal = distrax.Normal(actor_mean, actor_std)
+            pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
+            pi_tanh = distrax.Independent(pi_tanh_normal, 1)
+            action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+            env_act = unbatchify(action, env.agents)
+
+            #STEP ENV
+            rng, _rng = jax.random.split(rng)
+            rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
+            obsv, env_state, reward, done, info = jax.vmap(env.step)(
+                rng_step, runner_state.env_state, env_act,
+            )
+            done_batch = batchify(done, env.agents)
+            info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
+            
+            # q1_value = runner_state.train_states.q1.apply_fn(
+            #     runner_state.train_states.q1.params,
+            #     ac_in, action
+            # )
+
+            # q2_value = runner_state.train_states.q2.apply_fn(
+            #     runner_state.train_states.q2.params,
+            #     ac_in, action
+            # )
+            
+            eval_info = EvalInfo(
+                env_state=(env_state if log_env_state else None),
+                done=done,
+                action=action,
+                reward=reward,
+                log_prob=log_prob,
+                obs=obs_batch,
+                info=info,
+                avail_actions=avail_actions,
+            )
+            runner_state = EvalState(
+                train_states=runner_state.train_states,
+                env_state=env_state,
+                last_obs=obsv,
+                last_done=done_batch,
+                update_step=runner_state.update_step,
+                rng=rng,
+            )
+            return runner_state, eval_info
+
+        _, eval_info = jax.lax.scan(
+            _env_step, runner_state, None, max_steps
+        )
+
+        return eval_info
+    return env, run_evaluation
 
 @hydra.main(version_base=None, config_path="config", config_name="isac_mabrax")
 def main(config):
@@ -718,7 +911,7 @@ def main(config):
     train_rngs = jax.random.split(train_rng, config["NUM_SEEDS"])    
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(
-            make_train(config, save_train_state=False),
+            make_train(config, save_train_state=True),
             device=jax.devices()[config["DEVICE"]]
         )
         # first run (includes JIT)
@@ -728,7 +921,7 @@ def main(config):
         )
 
         # SAVE TRAIN METRICS
-        EXCLUDED_METRICS = ["train_state"]
+        EXCLUDED_METRICS = ["actor_train_state", "q1_train_state", "q2_train_state"]
         jnp.save("metrics.npy", {
             key: val
             for key, val in out["metrics"].items()
@@ -739,74 +932,122 @@ def main(config):
 
         # SAVE PARAMS
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-        all_train_states = out["metrics"]["train_state"]
-        final_train_state = out["runner_state"].train_state
+
+        all_train_states_actor = out["metrics"]["actor_train_state"]
+        all_train_states_q1 = out["metrics"]["q1_train_state"]
+        all_train_states_q2 = out["metrics"]["q2_train_state"]
+        final_train_state_actor = out["runner_state"].train_states.actor
+        final_train_state_q1 = out["runner_state"].train_states.q1
+        final_train_state_q2 = out["runner_state"].train_states.q2
+
         safetensors.flax.save_file(
-            flatten_dict(all_train_states.params, sep='/'),
-            "all_params.safetensors"
+            flatten_dict(all_train_states_actor.params, sep='/'),
+            "actor_all_params.safetensors"
         )
+
+        safetensors.flax.save_file(
+            flatten_dict(all_train_states_q1.params, sep='/'),
+            "q1_all_params.safetensors"
+        )
+
+        safetensors.flax.save_file(
+            flatten_dict(all_train_states_q2.params, sep='/'),
+            "q2_all_params.safetensors"
+        )
+
         if config["network"]["agent_param_sharing"]:
             safetensors.flax.save_file(
-                flatten_dict(final_train_state.params, sep='/'),
-                "final_params.safetensors"
+                flatten_dict(final_train_state_actor.params, sep='/'),
+                "actor_final_params.safetensors"
+            )
+
+            safetensors.flax.save_file(
+                flatten_dict(final_train_state_q1.params, sep='/'),
+                "q1_final_params.safetensors"
+            )
+            
+            safetensors.flax.save_file(
+                flatten_dict(final_train_state_q2.params, sep='/'),
+                "q2_final_params.safetensors"
             )
         else:
             # split by agent
-            split_params = _unstack_tree(
-                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state.params)
+            split_actor_params = _unstack_tree(
+                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state_actor.params)
             )
-            for agent, params in zip(env.agents, split_params):
+            for agent, params in zip(env.agents, split_actor_params):
                 safetensors.flax.save_file(
                     flatten_dict(params, sep='/'),
-                    f"{agent}.safetensors",
+                    f"actor_{agent}.safetensors",
                 )
+
+            split_q1_params = _unstack_tree(
+                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state_q1.params)
+            )
+            for agent, params in zip(env.agents, split_q1_params):
+                safetensors.flax.save_file(
+                    flatten_dict(params, sep='/'),
+                    f"q1_{agent}.safetensors",
+                )
+
+            split_q2_params = _unstack_tree(
+                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state_q2.params)
+            )
+            for agent, params in zip(env.agents, split_q2_params):
+                safetensors.flax.save_file(
+                    flatten_dict(params, sep='/'),
+                    f"q2_{agent}.safetensors",
+                )
+            
+            
 
         # TODO: implement evalution
        
         # Assume the first 2 dimensions are batch dims
-        # batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:2]
-        # n_sequential_evals = int(jnp.ceil(
-        #     config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
-        #     / config["GPU_ENV_CAPACITY"]
-        # ))
-        # def _flatten_and_split_trainstate(trainstate):
-        #     # We define this operation and JIT it for memory reasons
-        #     flat_trainstate = jax.tree.map(
-        #         lambda x: x.reshape((x.shape[0]*x.shape[1],*x.shape[2:])),
-        #         trainstate
-        #     )
-        #     return _tree_split(flat_trainstate, n_sequential_evals)
-        # split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
-        # eval_env, run_eval = make_evaluation(config)
-        # eval_jit = jax.jit(
-        #     run_eval,
-        #     static_argnames=["log_env_state"],
-        # )
-        # eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
-        # evals = _concat_tree([
-        #     eval_vmap(eval_rng, ts, False)
-        #     for ts in tqdm(split_trainstate, desc="Evaluation batches")
-        # ])
-        # evals = jax.tree.map(
-        #     lambda x: x.reshape((*batch_dims, *x.shape[1:])),
-        #     evals
-        # )
+        batch_dims = jax.tree.leaves(_tree_shape(all_train_states_actor.params))[:2]
+        n_sequential_evals = int(jnp.ceil(
+            config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
+            / config["GPU_ENV_CAPACITY"]
+        ))
+        def _flatten_and_split_trainstate(trainstate):
+            # We define this operation and JIT it for memory reasons
+            flat_trainstate = jax.tree.map(
+                lambda x: x.reshape((x.shape[0]*x.shape[1],*x.shape[2:])),
+                trainstate
+            )
+            return _tree_split(flat_trainstate, n_sequential_evals)
+        split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states_actor)
+        eval_env, run_eval = make_evaluation(config)
+        eval_jit = jax.jit(
+            run_eval,
+            static_argnames=["log_env_state"],
+        )
+        eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
+ 
+        evals = _concat_tree([
+            eval_vmap(eval_rng, ts, False)
+            for ts in tqdm(split_trainstate, desc="Evaluation batches")
+        ])
+        evals = jax.tree.map(
+            lambda x: x.reshape((*batch_dims, *x.shape[1:])),
+            evals
+        )
 
-        # # COMPUTE RETURNS
-        # first_episode_returns = _compute_episode_returns(evals)
-        # first_episode_returns = first_episode_returns["__all__"]
-        # mean_episode_returns = first_episode_returns.mean(axis=-1)
+        # COMPUTE RETURNS
+        first_episode_returns = _compute_episode_returns(evals)
+        first_episode_returns = first_episode_returns["__all__"]
+        mean_episode_returns = first_episode_returns.mean(axis=-1)
 
-        # std_error = first_episode_returns.std(axis=-1) / jnp.sqrt(first_episode_returns.shape[-1])
+        std_error = first_episode_returns.std(axis=-1) / jnp.sqrt(first_episode_returns.shape[-1])
 
-        # ci_lower = mean_episode_returns - 1.96 * std_error
-        # ci_upper = mean_episode_returns + 1.96 * std_error
+        ci_lower = mean_episode_returns - 1.96 * std_error
+        ci_upper = mean_episode_returns + 1.96 * std_error
 
 
-        # # SAVE RETURNS
-        # jnp.save("returns.npy", mean_episode_returns)
-        # jnp.save("returns_ci_lower.npy", ci_lower)
-        # jnp.save("returns_ci_upper.npy", ci_upper)
+        # SAVE RETURNS
+        jnp.save("returns.npy", mean_episode_returns)
+        jnp.save("returns_ci_lower.npy", ci_lower)
+        jnp.save("returns_ci_upper.npy", ci_upper)
 
         # RENDER
         # Run episodes for render (saving env_state at each timestep)

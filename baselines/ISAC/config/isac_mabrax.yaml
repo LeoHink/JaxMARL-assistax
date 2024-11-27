@@ -42,7 +42,7 @@ POLICY_UPDATE_DELAY: 4  # the delay before training the policy -
 
 # sizes
 BUFFER_SIZE: 1000000  # size of the replay buffer. Note: total size is this * num_devices
-BATCH_SIZE: 1
+BATCH_SIZE: 32
 
 # learning rates
 POLICY_LR: 3e-4  # the learning rate of the policy network optimizer
@@ -80,6 +80,10 @@ crossplay:
   paths:
     agent_0: /path/to/agent_0.safetensors
     agent_1: /path/to/agent_1.safetensors
+
+eval: # path to actor all params for eval
+  path: /home/leo/Documents/1_PhD/assistax/JaxMARL/baselines/ISAC/outputs/mabrax/scratchitch/2024-11-26/17-47-42/actor_all_params.safetensors
+  
 
 hydra:
   job:
