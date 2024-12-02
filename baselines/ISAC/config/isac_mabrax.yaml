@@ -19,6 +19,8 @@ NUM_SEEDS: 1
 SEED: 0
 NUM_EVAL_EPISODES: 64
 
+TEST_DURING_TRAINING: True
+
 # RL HYPERPARAMETERS
 UPDATE_EPOCHS: 4
 NUM_MINIBATCHES: 4
@@ -54,11 +56,15 @@ UPDATES_PER_STEP: 1
 # SAC specific
 TAU: 0.005  # smoothing coefficient for target networks
 GAMMA: 0.99  # discount factor
+NUM_SAC_UPDATES: 32 # Epochs over data
 
 AUTOTUNE: True  # whether to autotune alpha
 TARGET_ENTROPY_SCALE: 5.0  # scale factor for target entropy (when auto-tuning)
 INIT_ALPHA: 0.1  # initial entropy value when not using autotune
 
+# WANDB
+WANDB_GROUP: scratchitch
+WANDB_RUN: test
 
 # COMPUTE OPTIONS
 GPU_ENV_CAPACITY: 8192
@@ -82,8 +88,8 @@ crossplay:
     agent_1: /path/to/agent_1.safetensors
 
 eval: # path to actor all params for eval
-  path: /home/leo/Documents/1_PhD/assistax/JaxMARL/baselines/ISAC/outputs/mabrax/scratchitch/2024-11-26/17-47-42/actor_all_params.safetensors
-  
+  path: /home/leo/Documents/1_PhD/assistax/JaxMARL/baselines/ISAC/outputs/mabrax/scratchitch/2024-11-29/16-55-55/actor_all_params.safetensors
+
 
 hydra:
   job:
