@@ -530,10 +530,12 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                         ac_in
                         )
                     
-                    pi_normal = distrax.Normal(actor_mean, actor_std)
-                    pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
-                    pi_tanh = distrax.Independent(pi_tanh_normal, 1)
-                    action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+                    # pi_normal = distrax.Normal(actor_mean, actor_std)
+                    # pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
+                    # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
+                    # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+                    pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+                    action, log_prob = pi.sample_and_log_prob(seed=action_rng)
                     env_act = unbatchify(action, env.agents)
 
                     #STEP ENV
@@ -622,10 +624,13 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                         )
 
                         # TODO: change this to use MultivariateNormalDiag and block the bijector Tanh()
-                        pi_normal = distrax.Normal(actor_mean, actor_std)
-                        pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
-                        pi_tanh = distrax.Independent(pi_tanh_normal, 1)
-                        action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
+                        # pi_normal = distrax.Normal(actor_mean, actor_std)
+                        # pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
+                        # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
+                        # action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
+
+                        pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+                        action, log_prob = pi.sample_and_log_prob(seed=rng)
 
                         # Q-vals for actor loss
                         q1_values = batched_q(
@@ -664,11 +669,16 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                     next_act_mean, next_act_std = batched_actor(
                         train_state.actor.params, 
                         (next_obs, dones, avail_actions)) 
-                    next_pi_normal = distrax.Normal(next_act_mean, next_act_std)
-                    next_pi_tanh_normal = distrax.Transformed(next_pi_normal, bijector=distrax.Tanh())
-                    pi_tanh = distrax.Independent(next_pi_tanh_normal, 1)
-                    next_action, next_log_prob = pi_tanh.sample_and_log_prob(seed=q_sample_rng)
-                    next_env_act = unbatchify(next_action, env.agents)
+                    # next_pi_normal = distrax.Normal(next_act_mean, next_act_std)
+                    # next_pi_tanh_normal = distrax.Transformed(next_pi_normal, bijector=distrax.Tanh())
+                    # pi_tanh = distrax.Independent(next_pi_tanh_normal, 1)
+                    # next_action, next_log_prob = pi_tanh.sample_and_log_prob(seed=q_sample_rng)
+
+                    next_pi = distrax.MultivariateNormalDiag(next_act_mean, next_act_std)
+                    next_action, next_log_prob = next_pi.sample_and_log_prob(seed=rng)
+
+                    # test_action, test_log_prob = next_pi_normal.sample_and_log_prob(seed=q_sample_rng)
+                    # next_env_act = unbatchify(next_action, env.agents)
                     
                     # compute q target
                     next_q1 = batched_q(
@@ -736,6 +746,7 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                         'alpha_loss': temperature_loss,
                         'alpha': jnp.exp(new_train_state.log_alpha),
                         'log_probs': log_probs.mean(),
+                        "next_log_probs": next_log_prob.mean(),
                     }
 
                     # if save_train_state:
@@ -869,10 +880,14 @@ def make_evaluation(config):
                 ac_in
                 )
                 
-            pi_normal = distrax.Normal(actor_mean, actor_std)
-            pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
-            pi_tanh = distrax.Independent(pi_tanh_normal, 1)
-            action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+            # pi_normal = distrax.Normal(actor_mean, actor_std)
+            # pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
+            # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
+            # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+
+            pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+            action, log_prob = pi.sample_and_log_prob(seed=action_rng)
+
             env_act = unbatchify(action, env.agents)
 
             #STEP ENV
