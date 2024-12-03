@@ -53,18 +53,26 @@ class MABraxEnv(MultiAgentEnv):
         self.homogenisation_method = homogenisation_method
         self.agent_obs_mapping = _agent_observation_mapping[env_name]
         self.agent_action_mapping = _agent_action_mapping[env_name]
-        self.agents = list(self.agent_obs_mapping.keys())
-
-        self.num_agents = len(self.agent_obs_mapping)
+        self.agents = list(self.agent_action_mapping.keys())
+        self.num_agents = len(self.agents)
+        self.max_agent_obs_size = max(
+            o.size 
+            for a,o in self.agent_obs_mapping.items()
+            if not a == "global"
+        )
         obs_sizes = {
-            agent: self.num_agents
-            + max([o.size for o in self.agent_obs_mapping.values()])
-            if homogenisation_method == "max"
-            else self.env.observation_size
-            if homogenisation_method == "concat"
-            else obs.size
+            agent: (
+                # TODO move the global obs out of here and treat manually. It's wrong atm, and shouldn't have the extra num_agents indicator
+                self.num_agents + (
+                    self.max_agent_obs_size if homogenisation_method == "max"
+                    else self.env.observation_size if homogenisation_method == "concat"
+                    else obs.size
+                )
+            )
             for agent, obs in self.agent_obs_mapping.items()
+            if not agent == "global"
         }
+        obs_sizes["global"] = self.agent_obs_mapping["global"].size
         act_sizes = {
             agent: max([a.size for a in self.agent_action_mapping.values()])
             if homogenisation_method == "max"
@@ -78,9 +86,9 @@ class MABraxEnv(MultiAgentEnv):
             agent: spaces.Box(
                 -jnp.inf,
                 jnp.inf,
-                shape=(obs_sizes[agent],),
+                shape=(obs_size,),
             )
-            for agent in self.agents
+            for agent, obs_size in obs_sizes.items()
         }
         self.action_spaces = {
             agent: spaces.Box(
@@ -166,18 +174,18 @@ class MABraxEnv(MultiAgentEnv):
             A dictionary mapping agent names to their observations. The mapping method
             is determined by the homogenisation_method parameter.
         """
-        agent_obs = {}
-        for agent_idx, (agent_name, obs_indices) in enumerate(
-            self.agent_obs_mapping.items()
-        ):
+        agent_obs = {
+            "global": global_obs[self.agent_obs_mapping["global"]]
+        }
+        for agent_idx, agent_name in enumerate(self.agents):
+            obs_indices = self.agent_obs_mapping[agent_name]
             if self.homogenisation_method == "max":
                 # Vector with the agent idx one-hot encoded as the first num_agents
                 # elements and then the agent's own observations (zero padded to
                 # the size of the largest agent observation vector)
                 agent_obs[agent_name] = (
                     jnp.zeros(
-                        self.num_agents
-                        + max([v.size for v in self.agent_obs_mapping.values()])
+                        self.num_agents + self.max_agent_obs_size
                     )
                     .at[agent_idx]
                     .set(1)

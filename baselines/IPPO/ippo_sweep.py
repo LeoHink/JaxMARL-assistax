@@ -142,17 +142,13 @@ def main(config):
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
         case (False, False):
-            from ippo_ff_nps_mabrax import make_train as make_train
-            from ippo_ff_nps_mabrax import make_evaluation as make_evaluation
+            from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (False, True):
-            from ippo_ff_ps_mabrax import make_train as make_train
-            from ippo_ff_ps_mabrax import make_evaluation as make_evaluation
+            from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (True, False):
-            from ippo_rnn_nps_mabrax import make_train as make_train
-            from ippo_rnn_nps_mabrax import make_evaluation as make_evaluation
+            from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (True, True):
-            from ippo_rnn_ps_mabrax import make_train as make_train
-            from ippo_rnn_ps_mabrax import make_evaluation as make_evaluation
+            from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
     rng = jax.random.PRNGKey(config["SEED"])
     train_rng, eval_rng, sweep_rng = jax.random.split(rng, 3)
@@ -244,13 +240,24 @@ def main(config):
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
 
         eval_env, run_eval = make_evaluation(config)
+        eval_log_config = EvalInfoLogConfig(
+            env_state=False,
+            done=True,
+            action=False,
+            value=False,
+            reward=True,
+            log_prob=False,
+            obs=False,
+            info=False,
+            avail_actions=False,
+        )
         eval_jit = jax.jit(
             run_eval,
-            static_argnames=["log_env_state"],
+            static_argnames=["log_eval_info"],
         )
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
         evals = _concat_tree([
-            eval_vmap(eval_rng, ts, False)
+            eval_vmap(eval_rng, ts, eval_log_config)
             for ts in tqdm(split_trainstate, desc="Evaluation batches")
         ])
         evals = jax.tree.map(

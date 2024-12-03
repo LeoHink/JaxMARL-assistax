@@ -62,6 +62,7 @@ ranges: Dict[str, Dict[str, List[Union[int, Tuple[int, int]]]]] = {
         "agent_1": [(0, 5), 7, 8, 9, 11, (13, 18), 21, 22],
         "agent_2": [(0, 5), 7, 9, 10, 11, (13, 18), 23, 24],
         "agent_3": [(0, 5), 7, 9, 11, 12, (13, 18), 25, 26],
+        "global": [(0,26)],
     },
     "halfcheetah_6x1": {
         "agent_0": [(1, 2), 3, 4, 6, (9, 11), 12],
@@ -70,11 +71,13 @@ ranges: Dict[str, Dict[str, List[Union[int, Tuple[int, int]]]]] = {
         "agent_3": [(1, 2), 3, 6, 7, (9, 11), 15],
         "agent_4": [(1, 2), 6, 7, 8, (9, 11), 16],
         "agent_5": [(1, 2), 7, 8, (9, 11), 17],
+        "global": [(0,17)],
     },
     "hopper_3x1": {
         "agent_0": [(0, 1), 2, 3, (5, 7), 8],
         "agent_1": [(0, 1), 2, 3, 4, (5, 7), 9],
         "agent_2": [(0, 1), 3, 4, (5, 7), 10],
+        "global": [(0,10)],
     },
     "humanoid_9|8": {
         "agent_0": [
@@ -103,24 +106,29 @@ ranges: Dict[str, Dict[str, List[Union[int, Tuple[int, int]]]]] = {
             (278, 285),
             (316, 351),
         ],
+        "global": [(0,375)],
     },
     "walker2d_2x3": {
         "agent_0": [0, (2, 5), (8, 9), (11, 13)],
         "agent_1": [0, 2, (5, 9), (14, 16)],
+        "global": [(0,16)],
     },
     "scratchitch": {
         # "robot": [(0,80)], # Old obs
         # "human": [(81,161)] # Old obs
         "robot": [(0,28)], # New obs
-        "human": [(29,68)] # New obs
+        "human": [(29,68)], # New obs
+        "global": [(0,68)],
     },
     "bedbathing": {
         "robot": [(0,24)],
-        "human": [(25,60)]
+        "human": [(25,60)],
+        "global": [(0,60)],
     },
     "armmanipulation": {
         "robot": [(0,24)],
-        "human": [(25,60)]
+        "human": [(25,60)],
+        "global": [(0,60)],
     },
 }
 
