@@ -355,8 +355,8 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
         config["TOTAL_TIMESTEPS"] // config["ROLLOUT_LENGTH"] // config["NUM_ENVS"]
     )
     config["SCAN_STEPS"] = config["NUM_UPDATES"] // config["NUM_CHECKPOINTS"]
-    config["EXPLORE_STEPS"] = config["EXPLORE_STEPS"] // config["NUM_ENVS"]
-    print(f"NUM_UPDATES: {config['NUM_UPDATES']}")
+    config["EXPLORE_SCAN_STEPS"] = config["EXPLORE_STEPS"] // config["NUM_ENVS"]
+    print(f"NUM_UPDATES: {config['NUM_UPDATES']} \n SCAN_STEPS: {config['SCAN_STEPS']} \n EXPLORE_STEPS: {config['EXPLORE_STEPS']} \n NUM_CHECKPOINTS: {config['NUM_CHECKPOINTS']}")
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     env = LogWrapper(env, replace_info=True)
@@ -805,7 +805,7 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
         
         # Exploration before training
         explore_runner_state, explore_traj_batch = jax.lax.scan(
-                _explore, runner_state, None, config["EXPLORE_STEPS"]
+                _explore, runner_state, None, config["EXPLORE_SCAN_STEPS"]
             )
 
         explore_buffer_state = rb.add(
@@ -824,7 +824,7 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
         )
 
         final_runner_state, checkpoint_metrics = jax.lax.scan(
-            _checkpoint_step, explore_runner_state, None, 4
+            _checkpoint_step, explore_runner_state, None, config["NUM_CHECKPOINTS"]
         ) # change 1 to config["NUM_CHECKPOINTS"] eventually 
         return {"runner_state": final_runner_state, "metrics": checkpoint_metrics}
     
