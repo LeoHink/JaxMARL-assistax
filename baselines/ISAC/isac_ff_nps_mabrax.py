@@ -328,7 +328,7 @@ def make_train(config, save_train_state=True):
         buffer_state = rb.init(jax.tree.map(lambda x: jnp.moveaxis(x,1,0), init_transition))
 
         target_entropy = -config["TARGET_ENTROPY_SCALE"] * config["ACT_DIM"]
-
+        breakpoint()
         if config["AUTOTUNE"]:
             log_alpha = jnp.zeros_like(target_entropy)
         else: # TODO: catually implement the non autotune case
