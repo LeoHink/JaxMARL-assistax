@@ -226,8 +226,101 @@ class UpdateState(NamedTuple):
     rng: jnp.ndarray
 
 
+# class SACTrainStates(NamedTuple):
+#     """wrapper to manage multiple train states for SAC."""
+#     actor: TrainState
+#     q1: TrainState
+#     q2: TrainState
+#     q1_target: Dict
+#     q2_target: Dict
+#     log_alpha: jnp.ndarray
+#     alpha_opt_state: optax.OptState
+
+#     @classmethod
+#     def create(
+#         cls,
+#         *,
+#         actor_fn,
+#         q_fn,
+#         actor_params,
+#         q1_params,
+#         q2_params,
+#         actor_tx,
+#         q_tx,
+#         alpha_tx,
+#         init_log_alpha: float = 0.0,
+#     ):
+#         """Creates new train states with step=0 and initialized optimizers."""
+#         actor_state = TrainState.create(
+#             apply_fn=actor_fn,
+#             params=actor_params,
+#             tx=actor_tx,
+#         )
+
+#         q1_state = TrainState.create(
+#             apply_fn=q_fn,
+#             params=q1_params,
+#             tx=q_tx,
+#         )
+
+#         q2_state = TrainState.create(
+#             apply_fn=q_fn,
+#             params=q2_params,
+#             tx=q_tx,
+#         )
+
+#         # initialize target networks
+#         q1_target = q2_params
+
+#         q2_target = q2_params
+
+#         log_alpha = jnp.array(init_log_alpha)
+#         alpha_opt_state = alpha_tx.init(log_alpha) 
+
+#         return cls(
+#             actor=actor_state,
+#             q1=q1_state,
+#             q2=q2_state,
+#             q1_target=q1_target,
+#             q2_target=q2_target,
+#             log_alpha=log_alpha,
+#             alpha_opt_state=alpha_opt_state,
+#         )
+    
+#     def apply_gradients(
+#         self,
+#         *,
+#         actor_grads,
+#         q1_grads,
+#         q2_grads,
+#         tau,
+#         new_log_alpha,
+#         new_alpha_opt_state,
+#     ):
+#         """Updates all train states with their respective gradients."""
+#         new_actor = self.actor.apply_gradients(grads=actor_grads)
+#         new_q1 = self.q1.apply_gradients(grads=q1_grads)
+#         new_q2 = self.q2.apply_gradients(grads=q2_grads)
+
+#         new_q1_target = optax.incremental_update(new_q1.params, self.q1_target, tau)
+#         new_q2_target = optax.incremental_update(new_q2.params, self.q2_target, tau)
+
+#         return self._replace(
+#             actor=new_actor,
+#             q1=new_q1,
+#             q2=new_q2,
+#             q1_target=new_q1_target,
+#             q2_target=new_q2_target,
+#             log_alpha=new_log_alpha,
+#             alpha_opt_state=new_alpha_opt_state,    
+#         )
+
+#     @property
+#     def alpha(self):
+#         """Convenience property to get current temperature parameter."""
+#         return jnp.exp(self.log_alpha)
+
 class SACTrainStates(NamedTuple):
-    """wrapper to manage multiple train states for SAC."""
     actor: TrainState
     q1: TrainState
     q2: TrainState
@@ -236,89 +329,6 @@ class SACTrainStates(NamedTuple):
     log_alpha: jnp.ndarray
     alpha_opt_state: optax.OptState
 
-    @classmethod
-    def create(
-        cls,
-        *,
-        actor_fn,
-        q_fn,
-        actor_params,
-        q1_params,
-        q2_params,
-        actor_tx,
-        q_tx,
-        alpha_tx,
-        init_log_alpha: float = 0.0,
-    ):
-        """Creates new train states with step=0 and initialized optimizers."""
-        actor_state = TrainState.create(
-            apply_fn=actor_fn,
-            params=actor_params,
-            tx=actor_tx,
-        )
-
-        q1_state = TrainState.create(
-            apply_fn=q_fn,
-            params=q1_params,
-            tx=q_tx,
-        )
-
-        q2_state = TrainState.create(
-            apply_fn=q_fn,
-            params=q2_params,
-            tx=q_tx,
-        )
-
-        # initialize target networks
-        q1_target = q2_params
-
-        q2_target = q2_params
-
-        log_alpha = jnp.array(init_log_alpha)
-        alpha_opt_state = alpha_tx.init(log_alpha) 
-
-        return cls(
-            actor=actor_state,
-            q1=q1_state,
-            q2=q2_state,
-            q1_target=q1_target,
-            q2_target=q2_target,
-            log_alpha=log_alpha,
-            alpha_opt_state=alpha_opt_state,
-        )
-    
-    def apply_gradients(
-        self,
-        *,
-        actor_grads,
-        q1_grads,
-        q2_grads,
-        tau,
-        new_log_alpha,
-        new_alpha_opt_state,
-    ):
-        """Updates all train states with their respective gradients."""
-        new_actor = self.actor.apply_gradients(grads=actor_grads)
-        new_q1 = self.q1.apply_gradients(grads=q1_grads)
-        new_q2 = self.q2.apply_gradients(grads=q2_grads)
-
-        new_q1_target = optax.incremental_update(new_q1.params, self.q1_target, tau)
-        new_q2_target = optax.incremental_update(new_q2.params, self.q2_target, tau)
-
-        return self._replace(
-            actor=new_actor,
-            q1=new_q1,
-            q2=new_q2,
-            q1_target=new_q1_target,
-            q2_target=new_q2_target,
-            log_alpha=new_log_alpha,
-            alpha_opt_state=new_alpha_opt_state,    
-        )
-
-    @property
-    def alpha(self):
-        """Convenience property to get current temperature parameter."""
-        return jnp.exp(self.log_alpha)
 
 BufferState: TypeAlias = TrajectoryBufferState[Transition]
 class RunnerState(NamedTuple):
@@ -391,12 +401,6 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
         obsv, env_state = jax.vmap(env.reset)(reset_rng)
         init_dones = jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=bool)
 
-        # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
-        obsv, env_state = jax.vmap(env.reset)(reset_rng)
-        init_dones = jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=bool)
-
         action_space = env.action_space(env.agents[0])
         action = jnp.zeros((env.num_agents, config["NUM_ENVS"], action_space.shape[0]))
 
@@ -419,10 +423,10 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
         buffer_state = rb.init(jax.tree.map(lambda x: jnp.moveaxis(x,1,0), init_transition))
 
         target_entropy = -config["TARGET_ENTROPY_SCALE"] * config["ACT_DIM"]
-        # TODO: write the config
+
         if config["AUTOTUNE"]:
             log_alpha = jnp.zeros_like(target_entropy)
-        else:
+        else: # TODO: catually implement the non autotune case
             log_alpha = jnp.log(config["INIT_ALPHA"])
             log_alpha = jnp.broadcast_to(log_alpha, target_entropy.shape)
 
@@ -430,28 +434,41 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
         grad_clip = optax.clip_by_global_norm(config["MAX_GRAD_NORM"])
 
         actor_opt = optax.chain(grad_clip, optax.adam(config["POLICY_LR"]))
-        # actor_opt_state = actor_opt.init(params.actor)
 
-        q_opt = optax.chain(grad_clip, optax.adam(config["Q_LR"]))
-        # q_opt_state = q_opt.init(params.q.online)
-
+        q1_opt = optax.chain(grad_clip, optax.adam(config["Q_LR"]))
+        # Testing with 2 separate optimizers for each q function 
+        q2_opt = optax.chain(grad_clip, optax.adam(config["Q_LR"]))
+        
         alpha_opt = optax.chain(grad_clip, optax.adam(config["ALPHA_LR"]))
-        # alpha_opt_state = alpha_opt.init(params.log_alpha)
+        alpha_opt_state = alpha_opt.init(log_alpha)
+
+        tanh_bijector = distrax.Block(distrax.Tanh(), ndims=1)
         
-        # TODO: why do I need to do this again?
-        # batched_actor = jax.vmap(actor.apply, in_axes=(None, 0))
-        # batched_q = jax.vmap(q.apply, in_axes=(None, 0, 0))
+        actor_train_state = TrainState.create(
+            apply_fn=actor.apply,
+            params=actor_params,
+            tx=actor_opt,
+        )
+        q1_train_state = TrainState.create(
+            apply_fn=q.apply,
+            params=q1_params,
+            tx=q1_opt,
+        )
+
+        q2_train_state = TrainState.create(
+            apply_fn=q.apply,
+            params=q2_params,
+            tx=q2_opt,
+        )
         
-        train_states = SACTrainStates.create(
-            actor_fn=actor.apply,
-            q_fn=q.apply,
-            actor_params = actor_params,
-            q1_params = q1_params,
-            q2_params= q2_params,
-            actor_tx = actor_opt,
-            q_tx = q_opt,
-            alpha_tx = alpha_opt,
-            init_log_alpha = 0.0
+        train_states = SACTrainStates(
+            actor=actor_train_state,
+            q1=q1_train_state,
+            q2=q2_train_state,
+            q1_target=q1_params,
+            q2_target=q2_params,
+            log_alpha=log_alpha,
+            alpha_opt_state=alpha_opt_state,
         )
 
         runner_state = RunnerState(
@@ -464,11 +481,12 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
             rng=_rng,
         )
         
+        breakpoint()
         # TODO: implement an explore function here which does random exploration to fill replay buffer at beginnning of training
         
         def _explore(runner_state, unused):
-
             
+            breakpoint()
             rng, explore_rng = jax.random.split(runner_state.rng)
             avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
             
@@ -486,6 +504,7 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
             obs_batch = batchify(runner_state.last_obs, env.agents)
             done_batch = batchify(done, env.agents)
 
+            # maybe I should include info in the transition?
             transition = Transition(
                     obs = obs_batch,
                     action = action,
@@ -503,8 +522,32 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                 buffer_state=runner_state.buffer_state,
                 rng=rng
             )
+            breakpoint()
 
-            return runner_state, transition # do I need info?
+            return runner_state, transition 
+        
+        breakpoint()
+        explore_runner_state, explore_traj_batch = jax.lax.scan(
+                _explore, runner_state, None, config["EXPLORE_SCAN_STEPS"]
+            )
+
+        explore_buffer_state = rb.add(
+            runner_state.buffer_state,
+            jax.tree.map(lambda x: jnp.moveaxis(x,2,1), explore_traj_batch) # move batch axis to start
+        )
+
+        breakpoint()
+        
+        # changed this to reflect the explore info gathered for training
+        explore_runner_state = RunnerState(
+            train_states=explore_runner_state.train_states,
+            env_state=explore_runner_state.env_state,
+            last_obs=explore_runner_state.last_obs,
+            last_done=explore_runner_state.last_done,
+            t=runner_state.t,
+            buffer_state= explore_buffer_state,
+            rng=runner_state.rng
+        )
         
         def _checkpoint_step(runner_state, unused):
             """ Used to reduce amount of parameters we save during training. """
@@ -536,7 +579,8 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                     # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
                     # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
                     pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-                    action, log_prob = pi.sample_and_log_prob(seed=action_rng)
+                    pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+                    action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
                     env_act = unbatchify(action, env.agents)
 
                     #STEP ENV
@@ -650,20 +694,25 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                         #     actor_params, 
                         #     next_ac_in
                         # )
-                        actor_mean, actor_std = actor.apply(
+
+                        # for consistency with ippo maybe I should do train_state.actor.apply 
+                        
+                        # actor_mean, actor_std = actor.apply(
+                        #     actor_params, 
+                        #     next_ac_in
+                        # )
+
+                        actor_mean, actor_std = train_state.actor.apply_fn(
                             actor_params, 
                             next_ac_in
                         )
 
 
-                        # TODO: change this to use MultivariateNormalDiag and block the bijector Tanh()
-                        # pi_normal = distrax.Normal(actor_mean, actor_std)
-                        # pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
-                        # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
-                        # action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
-
+                        breakpoint()
                         pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-                        action, log_prob = pi.sample_and_log_prob(seed=rng)
+                        pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+                        action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
+                        breakpoint()
 
                         # Q-vals for actor loss
                         # q1_values = batched_q(
@@ -723,46 +772,38 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                     #     (next_obs, dones, avail_actions)) 
                     
                     breakpoint()
-                    next_act_mean, next_act_std = actor.apply(
-                        train_state.actor.params, 
-                        (next_obs, dones, avail_actions)) 
-                    
-
-                    
-
-
-                    # next_pi_normal = distrax.Normal(next_act_mean, next_act_std)
-                    # next_pi_tanh_normal = distrax.Transformed(next_pi_normal, bijector=distrax.Tanh())
-                    # pi_tanh = distrax.Independent(next_pi_tanh_normal, 1)
-                    # next_action, next_log_prob = pi_tanh.sample_and_log_prob(seed=q_sample_rng)
+                    # next_act_mean, next_act_std = actor.apply(
+                    #     train_state.actor.params, 
+                    #     (next_obs, dones, avail_actions)) 
+                    next_act_mean, next_act_std = train_state.actor.apply_fn(
+                        actor_params, 
+                        (next_obs, dones, avail_actions),
+                    )
 
                     # TODO: verify I'm using the right distribution ...
                     next_pi = distrax.MultivariateNormalDiag(next_act_mean, next_act_std)
-                    next_action, next_log_prob = next_pi.sample_and_log_prob(seed=rng) # these have shape (batch_size, num_agents, num_envs, act_dim) as expected for the qnetworks
+                    next_pi_tanh = distrax.Transformed(next_pi, bijector=tanh_bijector)
+                    next_action, next_log_prob = next_pi_tanh.sample_and_log_prob(seed=rng) # these have shape (batch_size, num_agents, num_envs, act_dim) as expected for the qnetworks
                     
                     breakpoint() # for checking actions
-                    # test_action, test_log_prob = next_pi_normal.sample_and_log_prob(seed=q_sample_rng)
-                    # next_env_act = unbatchify(next_action, env.agents)
                     
                     # compute q target
-                    next_q1 = q.apply(
-                        train_state.q1_target, 
-                        (next_obs, dones, avail_actions), next_action # double check is it next action or next_env_act? probs the latter
-                    )
-                    next_q2 = q.apply(
-                    train_state.q2_target, 
-                        (next_obs, dones, avail_actions), next_action
-                    )
-
-                    # next_q1 = batched_q(
+                    # next_q1 = q.apply(
                     #     train_state.q1_target, 
                     #     (next_obs, dones, avail_actions), next_action # double check is it next action or next_env_act? probs the latter
                     # )
-                    # next_q2 = batched_q(
+                    # next_q2 = q.apply(
                     # train_state.q2_target, 
                     #     (next_obs, dones, avail_actions), next_action
                     # )
-            
+                    next_q1 = train_state.q1.apply_fn(
+                        train_state.q1_target, 
+                        (next_obs, dones, avail_actions), next_action
+                    )
+                    next_q2 = train_state.q2.apply_fn(
+                        train_state.q2_target, 
+                        (next_obs, dones, avail_actions), next_action
+                    )
             
                     next_q = jnp.minimum(next_q1, next_q2)
                     breakpoint() # for checking the minimum vals
@@ -792,6 +833,7 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                         actor_update_rng,
                         avail_actions,
                     )
+                    breakpoint() # for checking log alpha
 
                     # alphaloss and gradient update
                     alpha_grad_fn = jax.value_and_grad(alpha_loss_fn)
@@ -804,14 +846,40 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                     new_log_alpha = optax.apply_updates(train_state.log_alpha, alpha_updates)
                     
                     # update networks
-                    new_train_state = train_state.apply_gradients(
-                        actor_grads=actor_grads,
-                        q1_grads=q_grads,
-                        q2_grads=q_grads,
-                        tau=config["TAU"],
-                        new_log_alpha=new_log_alpha,
-                        new_alpha_opt_state=new_alpha_opt_state,
-                    ) # this is messy as I don't only pass gradients maybe I should split off alpha update
+                    breakpoint()
+                    new_actor_train_state = train_state.actor.apply_gradients(grads=actor_grads)
+                    new_q1_train_state = train_state.q1.apply_gradients(grads=q_grads)
+                    new_q2_train_state = train_state.q2.apply_gradients(grads=q_grads)
+
+                    new_q1_target = optax.incremental_update(
+                        new_q1_train_state.params,
+                        train_state.q1_target,
+                        config["TAU"],
+                    )
+                    new_q2_target = optax.incremental_update(
+                        new_q2_train_state.params,
+                        train_state.q2_target,
+                        config["TAU"],
+                    )
+                    
+                    new_train_state = SACTrainStates(
+                        actor=new_actor_train_state,
+                        q1=new_q1_train_state,
+                        q2=new_q2_train_state,
+                        q1_target=new_q1_target,
+                        q2_target=new_q2_target,
+                        log_alpha=new_log_alpha,
+                        alpha_opt_state=new_alpha_opt_state,
+                    )
+                    
+                    # new_train_state = train_state.apply_gradients(
+                    #     actor_grads=actor_grads,
+                    #     q1_grads=q_grads,
+                    #     q2_grads=q_grads,
+                    #     tau=config["TAU"],
+                    #     new_log_alpha=new_log_alpha,
+                    #     new_alpha_opt_state=new_alpha_opt_state,
+                    # ) # this is messy as I don't only pass gradients maybe I should split off alpha update
                     # breakpoint()
                     metrics = {
                         'critic_loss': q_loss,
@@ -824,10 +892,6 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
                         "next_log_probs": next_log_prob.mean(),
                     }
 
-                    # if save_train_state:
-                    #     metrics.update({"actor_train_state": new_train_state.actor})
-                    #     metrics.update({"q1_train_state": new_train_state.q1})
-                    #     metrics.update({"q2_train_state": new_train_state.q2})
 
                     return (new_train_state, buffer_state), metrics
                 
@@ -856,27 +920,6 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
 
                 return runner_state, metrics
             
-            # do explore scan here think about what this should output
-
-            # explore_runner_state, explore_traj_batch = jax.lax.scan(
-            #     _explore, runner_state, None, config["EXPLORE_STEPS"]
-            # )
-
-            # explore_buffer_state = rb.add(
-            #     runner_state.buffer_state,
-            #     jax.tree.map(lambda x: jnp.moveaxis(x,2,1), explore_traj_batch) # move batch axis to start
-            # )
-            
-            # explore_runner_state = RunnerState(
-            #     train_states=runner_state.train_states,
-            #     env_state=runner_state.env_state,
-            #     last_obs=runner_state.last_obs,
-            #     last_done=runner_state.last_done,
-            #     t=runner_state.t,
-            #     buffer_state= explore_buffer_state,
-            #     rng=runner_state.rng
-            # )
-            
             runner_state, metrics = jax.lax.scan(
                 _update_step, runner_state, None, config["SCAN_STEPS"]
             )
@@ -890,27 +933,28 @@ def make_train(config, save_train_state=True): #TODO: implement the save_train_s
             return runner_state, metrics
         
         # Exploration before training
-        explore_runner_state, explore_traj_batch = jax.lax.scan(
-                _explore, runner_state, None, config["EXPLORE_SCAN_STEPS"]
-            )
+        # breakpoint()
+        # explore_runner_state, explore_traj_batch = jax.lax.scan(
+        #         _explore, runner_state, None, config["EXPLORE_SCAN_STEPS"]
+        #     )
 
-        explore_buffer_state = rb.add(
-            runner_state.buffer_state,
-            jax.tree.map(lambda x: jnp.moveaxis(x,2,1), explore_traj_batch) # move batch axis to start
-        )
+        # explore_buffer_state = rb.add(
+        #     runner_state.buffer_state,
+        #     jax.tree.map(lambda x: jnp.moveaxis(x,2,1), explore_traj_batch) # move batch axis to start
+        # )
 
-        breakpoint()
+        # breakpoint()
         
-        # changed this to reflec the explore info gathered for training
-        explore_runner_state = RunnerState(
-            train_states=explore_runner_state.train_states,
-            env_state=explore_runner_state.env_state,
-            last_obs=explore_runner_state.last_obs,
-            last_done=explore_runner_state.last_done,
-            t=runner_state.t,
-            buffer_state= explore_buffer_state,
-            rng=runner_state.rng
-        )
+        # # changed this to reflect the explore info gathered for training
+        # explore_runner_state = RunnerState(
+        #     train_states=explore_runner_state.train_states,
+        #     env_state=explore_runner_state.env_state,
+        #     last_obs=explore_runner_state.last_obs,
+        #     last_done=explore_runner_state.last_done,
+        #     t=runner_state.t,
+        #     buffer_state= explore_buffer_state,
+        #     rng=runner_state.rng
+        # )
 
         final_runner_state, checkpoint_metrics = jax.lax.scan(
             _checkpoint_step, explore_runner_state, None, config["NUM_CHECKPOINTS"]
@@ -925,6 +969,7 @@ def make_evaluation(config):
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     env = LogWrapper(env, replace_info=True)
     max_steps = env.episode_length
+    tanh_bijector = distrax.Block(distrax.Tanh(), ndims=1)
 
     def run_evaluation(rng, train_state, log_env_state=False):
         rng_reset, rng_env = jax.random.split(rng)
@@ -964,7 +1009,9 @@ def make_evaluation(config):
             # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
             pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-            action, log_prob = pi.sample_and_log_prob(seed=action_rng)
+            pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+
+            action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
             env_act = unbatchify(action, env.agents)
 

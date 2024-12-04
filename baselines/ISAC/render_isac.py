@@ -90,9 +90,11 @@ def main(config):
         # RENDER
         # Run episodes for render (saving env_state at each timestep)
         final_train_state = _tree_take(all_train_states, -1, axis=1)
+        breakpoint()
         final_eval_network_state = EvalNetworkState(apply_fn=network.apply, params=final_train_state)
         final_eval = _tree_take(final_eval_network_state, 0, axis=0)
         # eval_final = eval_jit(eval_rng, _tree_take(final_eval_network_state, 0, axis=0), True)
+        breakpoint()
         eval_final = eval_jit(eval_rng, final_eval, True)
         first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)

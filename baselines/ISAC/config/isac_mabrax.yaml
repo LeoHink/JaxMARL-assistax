@@ -89,7 +89,7 @@ crossplay:
     agent_1: /path/to/agent_1.safetensors
 
 eval: # path to actor all params for eval
-  path: /home/leo/Documents/1_PhD/assistax/JaxMARL/baselines/ISAC/outputs/mabrax/scratchitch/2024-11-29/16-55-55/actor_all_params.safetensors
+  path: /home/leo/Documents/1_PhD/assistax/JaxMARL/baselines/ISAC/outputs/mabrax/scratchitch/2024-12-03/20-33-43/actor_all_params.safetensors
 
 
 hydra:
