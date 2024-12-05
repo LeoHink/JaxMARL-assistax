@@ -264,29 +264,11 @@ class EvalInfo(NamedTuple):
     avail_actions: jnp.ndarray
 
     
-# def reshape_for_buffer(x):
-#     # For batch transitions
-#     if len(x.shape) == 4:  # For obs: [1000, 2, 32, 42]
-#         return x.transpose(2, 0, 1, 3).reshape(32, 1000, 2, *x.shape[3:])
-#     elif len(x.shape) == 3:  # Could be either:
-#         if x.shape[0] == 2:  # Single transition obs: [2, 32, 42]
-#             return x.transpose(1, 0, 2).reshape(32, 1, 2, *x.shape[2:])
-#         else:  # Batch of rewards/dones: [1000, 2, 32]
-#             return x.transpose(2, 0, 1).reshape(32, 1000, 2)
-#     else:  # Single transition rewards/dones: [2, 32]
-#         return x.transpose(1, 0).reshape(32, 1, 2)
-    
 def reshape_for_buffer(x):
-    if len(x.shape) == 4:  # For obs: [timesteps, 2, 32, 42]
-        timesteps = x.shape[0]
-        num_agents = x.shape[1]
-        num_envs = x.shape[2]
-        return x.reshape(timesteps * num_envs, num_agents, *x.shape[3:])
-    elif len(x.shape) == 3:  # For rewards/dones: [timesteps, 2, 32]
-        timesteps = x.shape[0]
-        num_agents = x.shape[1] 
-        num_envs = x.shape[2]
-        return x.reshape(timesteps * num_envs, num_agents)
+    x = x.swapaxes(1,2)
+    timesteps = x.shape[0]
+    num_envs = x.shape[1]
+    return x.reshape(timesteps * num_envs, *x.shape[2:])
 
 
 def make_train(config, save_train_state=True): 
