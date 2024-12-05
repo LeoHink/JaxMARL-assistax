@@ -67,7 +67,6 @@ def _concat_tree(pytree_list, axis=0):
         *pytree_list
     )
 
-
 def _tree_split(pytree, n, axis=0):
     leaves, treedef = jax.tree.flatten(pytree)
     split_leaves = zip(
@@ -189,26 +188,26 @@ class MultiSACQNetwork(nn.Module):
         
         return jnp.squeeze(x, axis=-1)
 
-class QVals(NamedTuple):
-    q1: FrozenVariableDict
-    q2: FrozenVariableDict
+# class QVals(NamedTuple):
+#     q1: FrozenVariableDict
+#     q2: FrozenVariableDict
 
 
-class QValsAndTarget(NamedTuple):
-    online: QVals
-    targets: QVals
+# class QValsAndTarget(NamedTuple):
+#     online: QVals
+#     targets: QVals
 
 
-class SacParams(NamedTuple):
-    actor: FrozenVariableDict
-    q: QValsAndTarget
-    log_alpha: jnp.ndarray
+# class SacParams(NamedTuple):
+#     actor: FrozenVariableDict
+#     q: QValsAndTarget
+#     log_alpha: jnp.ndarray
 
 
-class OptStates(NamedTuple):
-    actor: optax.OptState
-    q: optax.OptState
-    alpha: optax.OptState
+# class OptStates(NamedTuple):
+#     actor: optax.OptState
+#     q: optax.OptState
+#     alpha: optax.OptState
 
 
 class Transition(NamedTuple):
@@ -218,12 +217,12 @@ class Transition(NamedTuple):
     done: jnp.ndarray
     next_obs: jnp.ndarray
 
-class UpdateState(NamedTuple):
-    train_state: TrainState
-    traj_batch: Transition
-    q1_target: jnp.ndarray
-    q2_target: jnp.ndarray
-    rng: jnp.ndarray
+# class UpdateState(NamedTuple):
+#     train_state: TrainState
+#     traj_batch: Transition
+#     q1_target: jnp.ndarray
+#     q2_target: jnp.ndarray
+#     rng: jnp.ndarray
 
 class SACTrainStates(NamedTuple):
     actor: TrainState
@@ -236,6 +235,7 @@ class SACTrainStates(NamedTuple):
 
 
 BufferState: TypeAlias = TrajectoryBufferState[Transition]
+
 class RunnerState(NamedTuple):
     train_states: SACTrainStates
     env_state: LogEnvState
@@ -262,6 +262,31 @@ class EvalInfo(NamedTuple):
     obs: jnp.ndarray
     info: jnp.ndarray
     avail_actions: jnp.ndarray
+
+    
+# def reshape_for_buffer(x):
+#     # For batch transitions
+#     if len(x.shape) == 4:  # For obs: [1000, 2, 32, 42]
+#         return x.transpose(2, 0, 1, 3).reshape(32, 1000, 2, *x.shape[3:])
+#     elif len(x.shape) == 3:  # Could be either:
+#         if x.shape[0] == 2:  # Single transition obs: [2, 32, 42]
+#             return x.transpose(1, 0, 2).reshape(32, 1, 2, *x.shape[2:])
+#         else:  # Batch of rewards/dones: [1000, 2, 32]
+#             return x.transpose(2, 0, 1).reshape(32, 1000, 2)
+#     else:  # Single transition rewards/dones: [2, 32]
+#         return x.transpose(1, 0).reshape(32, 1, 2)
+    
+def reshape_for_buffer(x):
+    if len(x.shape) == 4:  # For obs: [timesteps, 2, 32, 42]
+        timesteps = x.shape[0]
+        num_agents = x.shape[1]
+        num_envs = x.shape[2]
+        return x.reshape(timesteps * num_envs, num_agents, *x.shape[3:])
+    elif len(x.shape) == 3:  # For rewards/dones: [timesteps, 2, 32]
+        timesteps = x.shape[0]
+        num_agents = x.shape[1] 
+        num_envs = x.shape[2]
+        return x.reshape(timesteps * num_envs, num_agents)
 
 
 def make_train(config, save_train_state=True): 
@@ -309,23 +334,38 @@ def make_train(config, save_train_state=True):
         action_space = env.action_space(env.agents[0])
         action = jnp.zeros((env.num_agents, config["NUM_ENVS"], action_space.shape[0]))
 
+        # init_transition = Transition(
+        #     obs=batchify(obsv, env.agents),
+        #     action=action,
+        #     reward=jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=float),
+        #     done=init_dones,
+        #     next_obs=batchify(obsv, env.agents)
+        # )
+        breakpoint()
         init_transition = Transition(
-            obs=batchify(obsv, env.agents),
-            action=action,
-            reward=jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=float),
-            done=init_dones,
-            next_obs=batchify(obsv, env.agents)
+            obs=jnp.zeros((env.num_agents, get_space_dim(env.observation_space(env.agents[0]))), dtype=float),
+            action=jnp.zeros((env.num_agents, get_space_dim(action_space)), dtype=float),
+            reward=jnp.zeros((env.num_agents,), dtype=float),
+            done=jnp.zeros((env.num_agents,), dtype=bool),
+            next_obs=jnp.zeros((env.num_agents, get_space_dim(env.observation_space(env.agents[0]))), dtype=float)
         )
 
+        breakpoint()
+        # init_transition_reshaped = jax.tree_util.tree_map(
+        #     lambda x: jnp.moveaxis(x, 1, 0),
+        #     init_transition
+        # )
+        breakpoint()
         rb = fbx.make_item_buffer(
-            max_length=config["BUFFER_SIZE"]//config["NUM_ENVS"],
-            min_length=config["EXPLORE_STEPS"]//config["NUM_ENVS"],
+            max_length=config["BUFFER_SIZE"],
+            min_length=config["EXPLORE_STEPS"],
             sample_batch_size=int(config["BATCH_SIZE"]),
             add_batches=True,
         )
+
                                                                                                                                                 
         # buffer_state = rb.init(_tree_take(init_transition, 0, axis=1))
-        buffer_state = rb.init(jax.tree.map(lambda x: jnp.moveaxis(x,1,0), init_transition))
+        buffer_state = rb.init(init_transition)
 
         target_entropy = -config["TARGET_ENTROPY_SCALE"] * config["ACT_DIM"]
         breakpoint()
@@ -496,12 +536,15 @@ def make_train(config, save_train_state=True):
                 runner_state, traj_batch  = jax.lax.scan(
                     _env_step, runner_state, None, config["ROLLOUT_LENGTH"]
                 )
-                # this traj batch is shape (rollout_length, num_agents, num_envs, dim) needs to be reshaped to (rollout_length, num_envs, num_agents, dim)
-
-                # breakpoint()
+                
+                traj_batch_reshaped = jax.tree_util.tree_map(
+                    lambda x: reshape_for_buffer(x),
+                    traj_batch,
+                )
+                
                 new_buffer_state = rb.add(
                     runner_state.buffer_state,
-                    jax.tree.map(lambda x: jnp.moveaxis(x,2,1), traj_batch) # move batch axis to start
+                    traj_batch_reshaped, # move batch axis to start
                 )
                 breakpoint()
                 def _update_networks(carry, rng): 
@@ -511,24 +554,24 @@ def make_train(config, save_train_state=True):
                     batch = rb.sample(buffer_state, batch_sample_rng).experience
                     breakpoint()
                     
-                    def reshape_fn(x): # reshpe for different sized inputs
-                        if len(x.shape) == 4:  # obs, action, next_obs
-                            return x.transpose(2, 0, 1, 3).reshape((x.shape[2], x.shape[0] * x.shape[1], x.shape[3]))
-                        else:  # reward, done
-                            return x.transpose(2, 0, 1).reshape((x.shape[2], x.shape[0] * x.shape[1]))
+                    # def reshape_fn(x): # reshpe for different sized inputs
+                    #     if len(x.shape) == 4:  # obs, action, next_obs
+                    #         return x.transpose(2, 0, 1, 3).reshape((x.shape[2], x.shape[0] * x.shape[1], x.shape[3]))
+                    #     else:  # reward, done
+                    #         return x.transpose(2, 0, 1).reshape((x.shape[2], x.shape[0] * x.shape[1]))
 
-                    batch = jax.tree_util.tree_map(reshape_fn, batch)
+                    batch = jax.tree_util.tree_map(lambda x: x.swapaxes(0, 1), batch)
                                         
                     breakpoint()
 
                     #UPDATE Q_NETWORKS
                     def q_loss_fn(q1_online_params, q2_online_params, obs, dones, action, target_q, avail_actions):
                         
-                        current_q1 = q.apply(
+                        current_q1 = train_state.q2.apply_fn(
                             q1_online_params, 
                             (obs, dones, avail_actions), action
                         )
-                        current_q2 = q.apply(
+                        current_q2 = train_state.q2.apply_fn(
                             q2_online_params, 
                             (obs, dones, avail_actions), action
                         )
@@ -702,9 +745,6 @@ def make_train(config, save_train_state=True):
                 update_rngs = jax.random.split(sample_rng, config["NUM_SAC_UPDATES"])
                 (train_state, buffer_state), metrics = jax.lax.scan(_update_networks, (runner_state.train_states, new_buffer_state), update_rngs)
                 metrics = jax.tree.map(lambda x: x.mean(), metrics)
-                # only store train state after epochs
-
-                # breakpoint()
                 
                 runner_state = RunnerState(
                     train_states=train_state, # replace trainstate
@@ -735,11 +775,17 @@ def make_train(config, save_train_state=True):
         explore_runner_state, explore_traj_batch = jax.lax.scan(
                 _explore, runner_state, None, config["EXPLORE_SCAN_STEPS"]
             )
+        breakpoint()
 
+        explore_traj_batch = jax.tree_util.tree_map(
+            lambda x: reshape_for_buffer(x), explore_traj_batch
+        )
+        breakpoint()
         explore_buffer_state = rb.add(
             runner_state.buffer_state,
-            jax.tree.map(lambda x: jnp.moveaxis(x,2,1), explore_traj_batch) # move batch axis to start
-        )
+            explore_traj_batch
+        ) 
+        
 
         breakpoint()
         
@@ -889,7 +935,7 @@ def main(config):
         # first run (includes JIT)
         out = jax.vmap(train_jit, in_axes=(0, None, None, None))(
             train_rngs,
-            config["LR"], config["ENT_COEF"], config["CLIP_EPS"]
+            config["LR"], config["ENT_COEF"], config["CLIP_EPS"] # TODO: Change these for SAC sweep
         )
 
         # SAVE TRAIN METRICS
