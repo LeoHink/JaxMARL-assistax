@@ -95,6 +95,7 @@ def main(config):
     rng = jax.random.PRNGKey(config["SEED"])
     train_rng, eval_rng = jax.random.split(rng)
     train_rngs = jax.random.split(train_rng, config["NUM_SEEDS"])    
+    print(f"Starting training with {config['TOTAL_TIMESTEPS']} timesteps \n num envs: {config['NUM_ENVS']} \n num seeds: {config['NUM_SEEDS']} \n for env: {config['ENV_NAME']}")
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(
             make_train(config, save_train_state=True),
@@ -183,6 +184,7 @@ def main(config):
 
         # COMPUTE RETURNS
         first_episode_returns = _compute_episode_returns(evals)
+        first_episode_returns = first_episode_returns["__all__"]
         mean_episode_returns = first_episode_returns.mean(axis=-1)
 
         # SAVE RETURNS

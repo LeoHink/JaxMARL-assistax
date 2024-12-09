@@ -1,18 +1,18 @@
 defaults:
-  - network: ff_ps
+  - network: ff_nps
   - _self_
 
-ENV_NAME: scratchitch
+ENV_NAME: walker2d_2x3
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
-  backend: mjx
-  disability:
-    joint_idx: 13
-    joint_restriction_factor: 1.0
-    joint_strength: 1.0
-    tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 3e7
+  # backend: mjx
+  # disability:
+  #   joint_idx: 13
+  #   joint_restriction_factor: 1.0
+  #   joint_strength: 1.0
+  #   tremor_magnitude: 0.0
+TOTAL_TIMESTEPS: 30e7
 NUM_STEPS: 256
 NUM_ENVS: 512
 NUM_SEEDS: 1
@@ -42,7 +42,7 @@ DEVICE: 0
 
 # EVAL TRAIN STATE
 eval:
-  path: /path/to/all_params.safetensors
+  path: /home/leo/Documents/1_PhD/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/scratchitch/2024-12-09/15-44-59/all_params.safetensors
 
 # SWEEPER SETTINGS
 sweep:

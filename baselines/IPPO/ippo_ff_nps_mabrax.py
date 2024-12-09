@@ -152,7 +152,7 @@ def make_train(config, save_train_state=False):
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     env = LogWrapper(env, replace_info=True)
-
+    print(f"Num updates: {config['NUM_UPDATES']}")
     def linear_schedule(initial_lr):
         def _linear_schedule(count):
             frac = (
