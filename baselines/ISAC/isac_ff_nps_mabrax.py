@@ -323,7 +323,7 @@ def make_train(config, save_train_state=True):
         #     done=init_dones,
         #     next_obs=batchify(obsv, env.agents)
         # )
-        breakpoint()
+
         init_transition = Transition(
             obs=jnp.zeros((env.num_agents, get_space_dim(env.observation_space(env.agents[0]))), dtype=float),
             action=jnp.zeros((env.num_agents, get_space_dim(action_space)), dtype=float),
@@ -332,12 +332,11 @@ def make_train(config, save_train_state=True):
             next_obs=jnp.zeros((env.num_agents, get_space_dim(env.observation_space(env.agents[0]))), dtype=float)
         )
 
-        breakpoint()
         # init_transition_reshaped = jax.tree_util.tree_map(
         #     lambda x: jnp.moveaxis(x, 1, 0),
         #     init_transition
         # )
-        breakpoint()
+
         rb = fbx.make_item_buffer(
             max_length=config["BUFFER_SIZE"],
             min_length=config["EXPLORE_STEPS"],
@@ -350,7 +349,7 @@ def make_train(config, save_train_state=True):
         buffer_state = rb.init(init_transition)
 
         target_entropy = -config["TARGET_ENTROPY_SCALE"] * config["ACT_DIM"]
-        breakpoint()
+
         if config["AUTOTUNE"]:
             log_alpha = jnp.zeros_like(target_entropy)
         else: # TODO: catually implement the non autotune case

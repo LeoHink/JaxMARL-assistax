@@ -89,6 +89,7 @@ def main(config):
         network = NetworkArch(config=config)
         # RENDER
         # Run episodes for render (saving env_state at each timestep)
+        # I need to find a way to combine the parameters for the human and robot so I can load just the final parameters
         final_train_state = _tree_take(all_train_states, -1, axis=1)
         breakpoint()
         final_eval_network_state = EvalNetworkState(apply_fn=network.apply, params=final_train_state)

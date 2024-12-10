@@ -2,4 +2,4 @@ recurrent: false
 agent_param_sharing: false
 actor_hidden_dim: 128
 critic_hidden_dim: 128
-activation: tanh
+activation: "relu" # changed from tanh
