@@ -721,7 +721,7 @@ def make_train(config, save_train_state=True):
                         # # breakpoint()
                         new_actor_train_state = train_state.actor.apply_gradients(grads=actor_grads)
 
-                        return new_actor_train_state, new_q1_train_state, new_q2_train_state, new_log_alpha, new_alpha_opt_state, {
+                        return new_actor_train_state, new_log_alpha, new_alpha_opt_state, {
                             "actor_loss": actor_loss, 
                             "alpha_loss": temperature_loss, 
                             "log_prob": log_prob}
