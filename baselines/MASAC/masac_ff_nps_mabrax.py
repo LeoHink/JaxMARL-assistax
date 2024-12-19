@@ -269,23 +269,23 @@ def flatten_actions(x):
     return x.reshape(n_envs, n_agents * act_dim)
 
 # from Mava
-def get_joint_action(actions):
-    """Get the joint action from the individual actions of the agents.
+# def get_joint_action(actions):
+#     """Get the joint action from the individual actions of the agents.
 
-    Joint actions are simply the concatenation of all agents actions.
-    Shapes are transformed from (B, A, Act) -> (B, A, A * Act).
-    Note: this returns the same joint action tiled for each agent.
+#     Joint actions are simply the concatenation of all agents actions.
+#     Shapes are transformed from (B, A, Act) -> (B, A, A * Act).
+#     Note: this returns the same joint action tiled for each agent.
 
-    Args:
-    ----
-        actions (B, A, Act): the individual actions of the agents.
+#     Args:
+#     ----
+#         actions (B, A, Act): the individual actions of the agents.
 
-    Returns: (B, A, A * Act): the joint action repeated for each agent.
+#     Returns: (B, A, A * Act): the joint action repeated for each agent.
 
-    """
-    batch_size, num_agents, act_size = actions.shape
-    repeated_action = jnp.tile(actions[:, jnp.newaxis, ...], (1, num_agents, 1, 1))
-    return jnp.reshape(repeated_action, (batch_size, num_agents, act_size * num_agents))
+#     """
+#     batch_size, num_agents, act_size = actions.shape
+#     repeated_action = jnp.tile(actions[:, jnp.newaxis, ...], (1, num_agents, 1, 1))
+#     return jnp.reshape(repeated_action, (batch_size, num_agents, act_size * num_agents))
 
 
 def make_train(config, save_train_state=True): 
@@ -369,7 +369,7 @@ def make_train(config, save_train_state=True):
                                                                                                                                                 
         # buffer_state = rb.init(_tree_take(init_transition, 0, axis=1))
         buffer_state = rb.init(init_transition)
-        breakpoint()
+        # breakpoint()
         target_entropy = -config["TARGET_ENTROPY_SCALE"] * config["ACT_DIM"]
 
         if config["AUTOTUNE"]:
@@ -432,18 +432,18 @@ def make_train(config, save_train_state=True):
         )
 
         
-        breakpoint()
+        # breakpoint()
         
         def _explore(runner_state, unused):
             
-            breakpoint()
+            # breakpoint()
             rng, explore_rng = jax.random.split(runner_state.rng)
             avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
             
             avail_actions_shape = batchify(avail_actions, env.agents).shape
             action = jax.random.uniform(explore_rng, avail_actions_shape, minval=-1, maxval=1)
             env_act = unbatchify(action, env.agents)
-            breakpoint() # compare random action to actual action
+            # breakpoint() # compare random action to actual action
             rng_step = jax.random.split(explore_rng, config["NUM_ENVS"])
            
             obsv, env_state, reward, done, info = jax.vmap(env.step)(
@@ -454,7 +454,7 @@ def make_train(config, save_train_state=True):
             
             last_obs_batch = batchify(runner_state.last_obs, env.agents)
             done_batch = batchify(done, env.agents)
-            breakpoint()
+            # breakpoint()
             # maybe I should include info in the transition?
             transition = Transition(
                     obs = last_obs_batch,
@@ -477,24 +477,24 @@ def make_train(config, save_train_state=True):
                 total_env_steps = new_total_steps,
                 total_grad_updates = runner_state.total_grad_updates
             )
-            breakpoint()
+            # breakpoint()
 
             return runner_state, transition 
         
         
         def _checkpoint_step(runner_state, unused):
             """ Used to reduce amount of parameters we save during training. """
-            # jax.debug.print('doing the checkpoint step')
+            # # jax.debugprint('doing the checkpoint step')
 
             def _update_step(runner_state, unused):
                 """ The SAC update"""
             
-                # jax.debug.print('doing the update step')
+                # # # jax.debug.print('doing the update step')
 
                 def _env_step(runner_state, unused):
                     """ Step the environment """
-                    # breakpoint()
-                    # jax.debug.print('env_stepping')
+                    # # breakpoint()
+                    # # # jax.debug.print('env_stepping')
                     rng = runner_state.rng
                     obs_batch = batchify(runner_state.last_obs, env.agents)
                     avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
@@ -524,7 +524,7 @@ def make_train(config, save_train_state=True):
                     )
                     done_batch = batchify(done, env.agents)
                     info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
-                    breakpoint()
+                    # breakpoint()
                     transition = Transition(
                         obs = obs_batch,
                         obs_global = runner_state.last_obs["global"],
@@ -567,13 +567,13 @@ def make_train(config, save_train_state=True):
                     runner_state.buffer_state,
                     traj_batch_reshaped, # move batch axis to start
                 )
-                breakpoint()
+                # breakpoint()
                 def _update_networks(carry, rng): 
                     rng, batch_sample_rng, q_sample_rng, actor_update_rng = jax.random.split(rng, 4)
                     train_state, buffer_state = carry
-                    # jax.debug.print('updating networks')
+                    # # # jax.debug.print('updating networks')
                     batch = rb.sample(buffer_state, batch_sample_rng).experience
-                    breakpoint()
+                    # breakpoint()
                     
                     batch = jax.tree_util.tree_map(
                         lambda x, f: x.swapaxes(0, 1) if not ('global' in f) else x,
@@ -581,11 +581,11 @@ def make_train(config, save_train_state=True):
                         type(batch)(*[name for name in batch._fields])
                     )
                                         
-                    breakpoint()
+                    # breakpoint()
 
                     #UPDATE Q_NETWORKS
                     def q_loss_fn(q1_online_params, q2_online_params, obs, action, target_q):
-                        # jax.debug.print('getting q_loss')
+                        # # jax.debug.print('getting q_loss')
                         current_q1 = train_state.q2.apply_fn(
                             q1_online_params, 
                             obs, action
@@ -598,12 +598,12 @@ def make_train(config, save_train_state=True):
                         # MSE loss for both Q-networks
                         q1_loss = jnp.mean(jnp.square(current_q1 - target_q))
                         q2_loss = jnp.mean(jnp.square(current_q2 - target_q))
-                        # jax.debug.breakpoint()
+                        # # jax.debug.# breakpoint()
                         return q1_loss + q2_loss, (q1_loss, q2_loss)
                     
                     # loss for the actor
                     def actor_loss_fn(actor_params, q1_params, q2_params, obs, obs_global, dones, alpha, rng, avail_actions):
-                        # jax.debug.print('getting actor loss')
+                        # # jax.debug.print('getting actor loss')
                         next_ac_in = (obs, dones, avail_actions)
 
                         actor_mean, actor_std = train_state.actor.apply_fn(
@@ -627,12 +627,12 @@ def make_train(config, save_train_state=True):
                         
                         # actor loss with entropy
                         actor_loss = jnp.mean((alpha * log_prob) - q_value)
-                        # jax.debug.breakpoint()
-                        # breakpoint() # for checking actor loss
+                        # # jax.debug.# breakpoint()
+                        # # breakpoint() # for checking actor loss
                         return actor_loss, log_prob
                     
                     def alpha_loss_fn(log_alpha, log_pi, target_entropy):
-                        # jax.debug.print('getting alpha loss')
+                        # # jax.debug.print('getting alpha loss')
                         return jnp.mean(-jnp.exp(log_alpha) * (log_pi + target_entropy))
                     
                     
@@ -642,12 +642,12 @@ def make_train(config, save_train_state=True):
                     obs_global = batch.obs_global
                     dones = batch.done
                     action = batch.action
-                    breakpoint()
+                    # breakpoint()
                     # action_global = flatten_actions(action)
                     next_obs = batch.next_obs
                     next_obs_global = batch.next_obs_global
                     reward = batch.reward
-                    breakpoint()
+                    # breakpoint()
 
                     avail_actions =  jnp.zeros( # avail_actions
                             (env.num_agents, config["NUM_ENVS"]*config["BATCH_SIZE"], config["ACT_DIM"])
@@ -681,7 +681,7 @@ def make_train(config, save_train_state=True):
 
                     # TODO: I don't think this is an issue but next_q is a single value and then get broadcast to each agent (I assume the same value for both I guess this is wanted MAVA does something more fancy)
                     target_q = reward + config["GAMMA"] * (1.0 - dones) * next_q
-                    breakpoint() # do I need to reshape all of this as well to a be a single value?
+                    # breakpoint() # do I need to reshape all of this as well to a be a single value?
                     q_grad_fun = jax.value_and_grad(q_loss_fn, has_aux=True)
                     (q_loss, (q1_loss, q2_loss)), q_grads = q_grad_fun(
                         train_state.q1.params, 
@@ -692,36 +692,49 @@ def make_train(config, save_train_state=True):
                         )
 
                     # actor loss and gradient 
-                    actor_grad_fun = jax.value_and_grad(actor_loss_fn, has_aux=True)
-                    (actor_loss, log_prob), actor_grads = actor_grad_fun(
-                        train_state.actor.params,
-                        train_state.q1.params,
-                        train_state.q2.params,
-                        obs,
-                        obs_global,
-                        dones,
-                        jnp.exp(train_state.log_alpha),
-                        actor_update_rng,
-                        avail_actions,
-                    )
-                    # jax.debug.breakpoint() # for checking log alpha and returned_log_prob
+                    def _update_actor_and_alpha():
+                        actor_grad_fun = jax.value_and_grad(actor_loss_fn, has_aux=True)
+                        (actor_loss, log_prob), actor_grads = actor_grad_fun(
+                            train_state.actor.params,
+                            train_state.q1.params,
+                            train_state.q2.params,
+                            obs,
+                            obs_global,
+                            dones,
+                            jnp.exp(train_state.log_alpha),
+                            actor_update_rng,
+                            avail_actions,
+                        )
+                        # # jax.debug.# breakpoint() # for checking log alpha and returned_log_prob
 
-                    # alphaloss and gradient update
-                    alpha_grad_fn = jax.value_and_grad(alpha_loss_fn)
-                    temperature_loss, alpha_grad = alpha_grad_fn(train_state.log_alpha, log_prob, target_entropy)
-                    alpha_updates, new_alpha_opt_state = alpha_opt.update(
-                    alpha_grad, 
-                    train_state.alpha_opt_state, 
-                    train_state.log_alpha
-                    )
-                    new_log_alpha = optax.apply_updates(train_state.log_alpha, alpha_updates)
+                        # alphaloss and gradient update
+                        alpha_grad_fn = jax.value_and_grad(alpha_loss_fn)
+                        temperature_loss, alpha_grad = alpha_grad_fn(train_state.log_alpha, log_prob, target_entropy)
+                        alpha_updates, new_alpha_opt_state = alpha_opt.update(
+                        alpha_grad, 
+                        train_state.alpha_opt_state, 
+                        train_state.log_alpha
+                        )
+                        new_log_alpha = optax.apply_updates(train_state.log_alpha, alpha_updates)
+                        
+                        # update networks
+                        # # breakpoint()
+                        new_actor_train_state = train_state.actor.apply_gradients(grads=actor_grads)
+
+                        return new_actor_train_state, new_q1_train_state, new_q2_train_state, new_log_alpha, new_alpha_opt_state, {
+                            "actor_loss": actor_loss, 
+                            "alpha_loss": temperature_loss, 
+                            "log_prob": log_prob}
                     
-                    # update networks
-                    # breakpoint()
-                    new_actor_train_state = train_state.actor.apply_gradients(grads=actor_grads)
+                    new_actor_train_state, new_log_alpha, new_alpha_opt_state, actor_info = jax.lax.cond(
+                        train_state.actor.step % config["POLICY_UPDATE_DELAY"] == 0,
+                        lambda: _update_actor_and_alpha(),
+                        lambda: (train_state.actor, train_state.log_alpha, train_state.alpha_opt_state, 
+                                {'actor_loss': 0.0, 'alpha_loss': 0.0, 'log_prob': 0.0})
+                    )
+                    
                     new_q1_train_state = train_state.q1.apply_gradients(grads=q_grads)
                     new_q2_train_state = train_state.q2.apply_gradients(grads=q_grads)
-
                     new_q1_target = optax.incremental_update(
                         new_q1_train_state.params,
                         train_state.q1_target,
@@ -749,24 +762,24 @@ def make_train(config, save_train_state=True):
                         'critic_loss': q_loss,
                         'q1_loss': q1_loss,
                         'q2_loss': q2_loss,
-                        'actor_loss': actor_loss,
-                        'alpha_loss': temperature_loss,
+                        'actor_loss': actor_info["actor_loss"],
+                        'alpha_loss': actor_info["temperature_loss"],
                         'alpha': jnp.exp(new_train_state.log_alpha),
-                        'log_probs': log_prob.mean(),
+                        'log_probs': actor_info["log_prob"].mean(),
                         "next_log_probs": next_log_prob.mean(),
                         "actor_update_step": new_actor_train_state.step,
                         "q1_update_step": new_q1_train_state.step,
                         "q2_update_step": new_q2_train_state.step,
                         "step_counter": step
                     }
-                    jax.debug.print("Q update Network Step {x}", x=train_state.q1.step)
-                    jax.debug.print("Actor update Network Step {x}", x = train_state.actor.step)
+                    # jax.debug.print("Q update Network Step {x}", x=train_state.q1.step)
+                    # jax.debug.print("Actor update Network Step {x}", x = train_state.actor.step)
                     return (new_train_state, buffer_state), metrics
                 
                 _, sample_rng = jax.random.split(runner_state.rng)
 
                 update_rngs = jax.random.split(sample_rng, config["NUM_SAC_UPDATES"])
-                breakpoint()
+                # breakpoint()
                 (updated_train_state, updated_buffer_state), metrics = jax.lax.scan(_update_networks, (runner_state.train_states, new_buffer_state), update_rngs)
                 metrics = jax.tree.map(lambda x: x.mean(), metrics)
                 
@@ -782,7 +795,7 @@ def make_train(config, save_train_state=True):
                     total_grad_updates=updated_train_state.actor.step
                 )
 
-                jax.debug.print("Update Step {x}", x=updated_train_state.actor.step)
+                # jax.debugprint("Update Step {x}", x=updated_train_state.actor.step)
 
                 return runner_state, metrics
             
@@ -835,8 +848,8 @@ def make_train(config, save_train_state=True):
         final_runner_state, checkpoint_metrics = jax.lax.scan(
             _checkpoint_step, explore_runner_state, None, config["NUM_CHECKPOINTS"]
         ) # change 1 to config["NUM_CHECKPOINTS"] eventually
-        jax.debug.print("Finished training with {x} number of gradient updates", x = final_runner_state.train_states.actor.step)
-        jax.debug.print("Finished training with {x} environment steps", x = final_runner_state.total_env_steps)
+        # jax.debugprint("Finished training with {x} number of gradient updates", x = final_runner_state.train_states.actor.step)
+        # jax.debugprint("Finished training with {x} environment steps", x = final_runner_state.total_env_steps)
         return {"runner_state": final_runner_state, "metrics": checkpoint_metrics}
     
     return train
