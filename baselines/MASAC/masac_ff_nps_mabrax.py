@@ -568,9 +568,10 @@ def make_train(config, save_train_state=True):
                     traj_batch_reshaped, # move batch axis to start
                 )
                 # breakpoint()
-                def _update_networks(carry, rng): 
+                def _update_networks(runner_state, rng): 
                     rng, batch_sample_rng, q_sample_rng, actor_update_rng = jax.random.split(rng, 4)
-                    train_state, buffer_state = carry
+                    train_state = runner_state.train_states
+                    buffer_state = runner_state.buffer_state
                     # # # jax.debug.print('updating networks')
                     batch = rb.sample(buffer_state, batch_sample_rng).experience
                     # breakpoint()
@@ -716,23 +717,20 @@ def make_train(config, save_train_state=True):
                         train_state.log_alpha
                         )
                         new_log_alpha = optax.apply_updates(train_state.log_alpha, alpha_updates)
-                        
-                        # update networks
-                        # # breakpoint()
+                    
                         new_actor_train_state = train_state.actor.apply_gradients(grads=actor_grads)
-
                         return new_actor_train_state, new_log_alpha, new_alpha_opt_state, {
                             "actor_loss": actor_loss, 
                             "alpha_loss": temperature_loss, 
-                            "log_prob": log_prob}
-                    
+                            "mean_log_prob": log_prob.mean(), 
+                            }
                     new_actor_train_state, new_log_alpha, new_alpha_opt_state, actor_info = jax.lax.cond(
-                        train_state.actor.step % config["POLICY_UPDATE_DELAY"] == 0,
+                        runner_state.t % config["POLICY_UPDATE_DELAY"] == 0,
                         lambda: _update_actor_and_alpha(),
                         lambda: (train_state.actor, train_state.log_alpha, train_state.alpha_opt_state, 
-                                {'actor_loss': 0.0, 'alpha_loss': 0.0, 'log_prob': 0.0})
+                                {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0})
                     )
-                    
+
                     new_q1_train_state = train_state.q1.apply_gradients(grads=q_grads)
                     new_q2_train_state = train_state.q2.apply_gradients(grads=q_grads)
                     new_q1_target = optax.incremental_update(
@@ -763,37 +761,49 @@ def make_train(config, save_train_state=True):
                         'q1_loss': q1_loss,
                         'q2_loss': q2_loss,
                         'actor_loss': actor_info["actor_loss"],
-                        'alpha_loss': actor_info["temperature_loss"],
+                        'alpha_loss': actor_info["alpha_loss"],
                         'alpha': jnp.exp(new_train_state.log_alpha),
-                        'log_probs': actor_info["log_prob"].mean(),
+                        'log_probs': actor_info["mean_log_prob"],
                         "next_log_probs": next_log_prob.mean(),
                         "actor_update_step": new_actor_train_state.step,
                         "q1_update_step": new_q1_train_state.step,
                         "q2_update_step": new_q2_train_state.step,
                         "step_counter": step
                     }
+                    t = runner_state.t + 1
+                    runner_state = RunnerState(
+                        train_states=new_train_state,
+                         env_state=runner_state.env_state,
+                        last_obs=runner_state.last_obs,
+                        last_done=runner_state.last_done,
+                        t=t,
+                        buffer_state=buffer_state,
+                        rng=runner_state.rng,
+                        total_env_steps=runner_state.total_env_steps,
+                        total_grad_updates=new_train_state.actor.step
+                    )
                     # jax.debug.print("Q update Network Step {x}", x=train_state.q1.step)
                     # jax.debug.print("Actor update Network Step {x}", x = train_state.actor.step)
-                    return (new_train_state, buffer_state), metrics
+                    return runner_state, metrics
                 
                 _, sample_rng = jax.random.split(runner_state.rng)
 
                 update_rngs = jax.random.split(sample_rng, config["NUM_SAC_UPDATES"])
                 # breakpoint()
-                (updated_train_state, updated_buffer_state), metrics = jax.lax.scan(_update_networks, (runner_state.train_states, new_buffer_state), update_rngs)
+                runner_state, metrics = jax.lax.scan(_update_networks, runner_state, update_rngs)
                 metrics = jax.tree.map(lambda x: x.mean(), metrics)
                 
-                runner_state = RunnerState(
-                    train_states=updated_train_state, # replace trainstate
-                    env_state=runner_state.env_state,
-                    last_obs=runner_state.last_obs,
-                    last_done=runner_state.last_done,
-                    t=runner_state.t,
-                    buffer_state=updated_buffer_state,
-                    rng=runner_state.rng,
-                    total_env_steps=runner_state.total_env_steps,
-                    total_grad_updates=updated_train_state.actor.step
-                )
+                # runner_state = RunnerState(
+                #     train_states=updated_train_state, # replace trainstate
+                #     env_state=runner_state.env_state,
+                #     last_obs=runner_state.last_obs,
+                #     last_done=runner_state.last_done,
+                #     t=runner_state.t,
+                #     buffer_state=updated_buffer_state,
+                #     rng=runner_state.rng,
+                #     total_env_steps=runner_state.total_env_steps,
+                #     total_grad_updates=updated_train_state.actor.step
+                # )
 
                 # jax.debugprint("Update Step {x}", x=updated_train_state.actor.step)
 
