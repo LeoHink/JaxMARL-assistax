@@ -770,13 +770,13 @@ def make_train(config, save_train_state=True):
                         "q2_update_step": new_q2_train_state.step,
                         "step_counter": step
                     }
-                    t = runner_state.t + 1
+
                     runner_state = RunnerState(
                         train_states=new_train_state,
                          env_state=runner_state.env_state,
                         last_obs=runner_state.last_obs,
                         last_done=runner_state.last_done,
-                        t=t,
+                        t=runner_state.t,
                         buffer_state=buffer_state,
                         rng=runner_state.rng,
                         total_env_steps=runner_state.total_env_steps,
