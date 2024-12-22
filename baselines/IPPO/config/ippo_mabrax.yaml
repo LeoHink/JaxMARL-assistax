@@ -2,17 +2,17 @@ defaults:
   - network: ff_nps
   - _self_
 
-ENV_NAME: walker2d_2x3
+ENV_NAME: scratchitch
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
-  # backend: mjx
+  backend: mjx
   # disability:
   #   joint_idx: 13
   #   joint_restriction_factor: 1.0
   #   joint_strength: 1.0
   #   tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 30e7
+TOTAL_TIMESTEPS: 30e6
 NUM_STEPS: 256
 NUM_ENVS: 512
 NUM_SEEDS: 1
@@ -23,9 +23,9 @@ NUM_EVAL_EPISODES: 64
 UPDATE_EPOCHS: 4
 NUM_MINIBATCHES: 4
 ANNEAL_LR: False
-LR: 2.5e-4
+LR: 0.0010507666738703847
 ENT_COEF: 1e-4
-CLIP_EPS: 0.2
+CLIP_EPS:  0.31391364336013794
 SCALE_CLIP_EPS: False
 RATIO_CLIP_EPS: False
 GAMMA: 0.99

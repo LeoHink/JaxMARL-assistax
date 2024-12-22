@@ -324,7 +324,6 @@ def make_train(config, save_train_state=True):
         actor_params = actor.init(actor_rng, init_x)
         dummy_action = jnp.zeros((env.num_agents, 1, config["ACT_DIM"]))
         dummy_action = flatten_actions(dummy_action)
-
         q1_params = q.init(q1_rng, init_x_q, dummy_action)
         q2_params = q.init(q2_rng, init_x_q, dummy_action)
 
@@ -587,7 +586,7 @@ def make_train(config, save_train_state=True):
                     #UPDATE Q_NETWORKS
                     def q_loss_fn(q1_online_params, q2_online_params, obs, action, target_q):
                         # # jax.debug.print('getting q_loss')
-                        current_q1 = train_state.q2.apply_fn(
+                        current_q1 = train_state.q1.apply_fn(
                             q1_online_params, 
                             obs, action
                         )
@@ -683,8 +682,8 @@ def make_train(config, save_train_state=True):
                     # TODO: I don't think this is an issue but next_q is a single value and then get broadcast to each agent (I assume the same value for both I guess this is wanted MAVA does something more fancy)
                     target_q = reward + config["GAMMA"] * (1.0 - dones) * next_q
                     # breakpoint() # do I need to reshape all of this as well to a be a single value?
-                    q_grad_fun = jax.value_and_grad(q_loss_fn, has_aux=True)
-                    (q_loss, (q1_loss, q2_loss)), q_grads = q_grad_fun(
+                    q_grad_fun = jax.value_and_grad(q_loss_fn, argnums=(0,1), has_aux=True)
+                    (q_loss, (q1_loss, q2_loss)), (q1_grads, q2_grads) = q_grad_fun(
                         train_state.q1.params, 
                         train_state.q2.params, 
                         obs_global, # global_obs,
@@ -693,7 +692,8 @@ def make_train(config, save_train_state=True):
                         )
 
                     # actor loss and gradient 
-                    def _update_actor_and_alpha():
+                    def _update_actor_and_alpha(carry, _):
+                        train_state, dummy_metrics = carry
                         actor_grad_fun = jax.value_and_grad(actor_loss_fn, has_aux=True)
                         (actor_loss, log_prob), actor_grads = actor_grad_fun(
                             train_state.actor.params,
@@ -719,20 +719,36 @@ def make_train(config, save_train_state=True):
                         new_log_alpha = optax.apply_updates(train_state.log_alpha, alpha_updates)
                     
                         new_actor_train_state = train_state.actor.apply_gradients(grads=actor_grads)
-                        return new_actor_train_state, new_log_alpha, new_alpha_opt_state, {
+                        
+                        act_update_train_state = SACTrainStates(
+                            actor=new_actor_train_state,
+                            q1=train_state.q1,
+                            q2=train_state.q2,
+                            q1_target=train_state.q1_target,
+                            q2_target=train_state.q2_target,
+                            log_alpha=new_log_alpha,
+                            alpha_opt_state=new_alpha_opt_state,
+                        )
+
+                        actor_metrics = {
                             "actor_loss": actor_loss, 
                             "alpha_loss": temperature_loss, 
                             "mean_log_prob": log_prob.mean(), 
                             }
-                    new_actor_train_state, new_log_alpha, new_alpha_opt_state, actor_info = jax.lax.cond(
+                        return (act_update_train_state, actor_metrics), _
+                    
+                    (actor_update_train_state, actor_info), _ = jax.lax.cond(
                         runner_state.t % config["POLICY_UPDATE_DELAY"] == 0,
-                        lambda: _update_actor_and_alpha(),
-                        lambda: (train_state.actor, train_state.log_alpha, train_state.alpha_opt_state, 
-                                {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0})
+                        lambda: jax.lax.scan(_update_actor_and_alpha, 
+                                             (train_state, {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0}),
+                                             None,
+                                             length=config["POLICY_UPDATE_DELAY"]), 
+                        lambda: ((train_state, 
+                                {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0}), None)
                     )
 
-                    new_q1_train_state = train_state.q1.apply_gradients(grads=q_grads)
-                    new_q2_train_state = train_state.q2.apply_gradients(grads=q_grads)
+                    new_q1_train_state = train_state.q1.apply_gradients(grads=q1_grads)
+                    new_q2_train_state = train_state.q2.apply_gradients(grads=q2_grads)
                     new_q1_target = optax.incremental_update(
                         new_q1_train_state.params,
                         train_state.q1_target,
@@ -746,16 +762,15 @@ def make_train(config, save_train_state=True):
                     
                     # I hope the carry works as expected and at the end of the scan the newest train state is returned
                     new_train_state = SACTrainStates(
-                        actor=new_actor_train_state,
+                        actor=actor_update_train_state.actor,
                         q1=new_q1_train_state,
                         q2=new_q2_train_state,
                         q1_target=new_q1_target,
                         q2_target=new_q2_target,
-                        log_alpha=new_log_alpha,
-                        alpha_opt_state=new_alpha_opt_state,
+                        log_alpha=actor_update_train_state.log_alpha,
+                        alpha_opt_state=actor_update_train_state.alpha_opt_state,
                     )
-                    step_init =  1 
-                    step = step_init + 1
+
                     metrics = {
                         'critic_loss': q_loss,
                         'q1_loss': q1_loss,
@@ -765,10 +780,10 @@ def make_train(config, save_train_state=True):
                         'alpha': jnp.exp(new_train_state.log_alpha),
                         'log_probs': actor_info["mean_log_prob"],
                         "next_log_probs": next_log_prob.mean(),
-                        "actor_update_step": new_actor_train_state.step,
+                        "actor_update_step": actor_update_train_state.actor.step,
                         "q1_update_step": new_q1_train_state.step,
                         "q2_update_step": new_q2_train_state.step,
-                        "step_counter": step
+                        "step_counter": runner_state.t 
                     }
 
                     runner_state = RunnerState(
