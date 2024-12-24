@@ -711,11 +711,7 @@ def make_train(config, save_train_state=True):
                         # alphaloss and gradient update
                         alpha_grad_fn = jax.value_and_grad(alpha_loss_fn)
                         temperature_loss, alpha_grad = alpha_grad_fn(train_state.log_alpha, log_prob, target_entropy)
-                        alpha_updates, new_alpha_opt_state = alpha_opt.update(
-                        alpha_grad, 
-                        train_state.alpha_opt_state, 
-                        train_state.log_alpha
-                        )
+                        alpha_updates, new_alpha_opt_state = alpha_opt.update(alpha_grad, train_state.alpha_opt_stat)
                         new_log_alpha = optax.apply_updates(train_state.log_alpha, alpha_updates)
                     
                         new_actor_train_state = train_state.actor.apply_gradients(grads=actor_grads)
@@ -777,7 +773,7 @@ def make_train(config, save_train_state=True):
                         'q2_loss': q2_loss,
                         'actor_loss': actor_info["actor_loss"],
                         'alpha_loss': actor_info["alpha_loss"],
-                        'alpha': jnp.exp(new_train_state.log_alpha),
+                        'alpha': jnp.exp(actor_update_train_state.log_alpha),
                         'log_probs': actor_info["mean_log_prob"],
                         "next_log_probs": next_log_prob.mean(),
                         "actor_update_step": actor_update_train_state.actor.step,
