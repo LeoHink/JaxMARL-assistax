@@ -18,6 +18,7 @@ import distrax
 import sys
 import numpy as np
 import jaxmarl
+from jaxmarl.distributions.tanh_distribution import TanhTransformedDistribution # try new distribution
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper
 import hydra
@@ -42,10 +43,10 @@ print(sys.executable)
 
 # Helper functions remain the same
 def _tree_take(pytree, indices, axis=None):
-    return jax.tree_map(lambda x: x.take(indices, axis=axis), pytree)
+    return jax.tree_util.tree_map(lambda x: x.take(indices, axis=axis), pytree)
 
 def _tree_shape(pytree):
-    return jax.tree_map(lambda x: x.shape, pytree)
+    return jax.tree_util.tree_map(lambda x: x.shape, pytree)
 
 def _unstack_tree(pytree):
     leaves, treedef = jax.tree_util.tree_flatten(pytree)
@@ -146,7 +147,7 @@ class MultiSACActor(nn.Module):
         )
         actor_log_std = jnp.broadcast_to(log_std, actor_mean.shape)
 
-        return actor_mean, jnp.exp(actor_log_std)
+        return actor_mean, jnp.exp(actor_log_std) # could try softplus instead or just return log_std and then do the transformation after 
 
 # remove vmap so that we have a shared crtiric network
 
@@ -296,6 +297,7 @@ def make_train(config, save_train_state=True):
     config["SCAN_STEPS"] = config["NUM_UPDATES"] // config["NUM_CHECKPOINTS"]
     config["EXPLORE_SCAN_STEPS"] = config["EXPLORE_STEPS"] // config["NUM_ENVS"]
     print(f"NUM_UPDATES: {config['NUM_UPDATES']} \n SCAN_STEPS: {config['SCAN_STEPS']} \n EXPLORE_STEPS: {config['EXPLORE_STEPS']} \n NUM_CHECKPOINTS: {config['NUM_CHECKPOINTS']}")
+    print(f"Jax Running on: {jax.devices()}")
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))
@@ -513,19 +515,29 @@ def make_train(config, save_train_state=True):
                         ac_in
                         )
                     
-                    pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-                    pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
-                    action = pi_tanh.sample(seed=action_rng)
+                    # pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+                    # action = pi.sample(seed=action_rng) # testing with no bijector
+                    
+                    # tfd variation 
+                    act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
+                    pi = tfd.Independent(
+                        TanhTransformedDistribution(act_distribution),
+                        reinterpreted_batch_ndims=1,
+                    )
+                    action = pi.sample(seed=action_rng)
+                    
+                    # pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)    
+                    # action = pi_tanh.sample(seed=action_rng)
                     env_act = unbatchify(action, env.agents)
 
                     #STEP ENV
                     rng, step_rng = jax.random.split(rng)
                     rng_step = jax.random.split(step_rng, config["NUM_ENVS"])
-                    obsv, env_state, reward, done, info = jax.vmap(env.step)(
+                    obsv, env_state, reward, done, _ = jax.vmap(env.step)(
                         rng_step, runner_state.env_state, env_act,
                     )
                     done_batch = batchify(done, env.agents)
-                    info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
+                    # info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
                     # breakpoint()
                     transition = Transition(
                         obs = obs_batch,
@@ -541,6 +553,7 @@ def make_train(config, save_train_state=True):
 
                     new_total_steps = runner_state.total_env_steps + config["NUM_ENVS"]
 
+                    jax.debug.print("Observation: {z}", z=obsv)
                     runner_state = RunnerState(
                         train_states=runner_state.train_states,
                         env_state=env_state,
@@ -571,7 +584,7 @@ def make_train(config, save_train_state=True):
                 )
                 # breakpoint()
                 def _update_networks(runner_state, rng): 
-                    rng, batch_sample_rng, q_sample_rng, actor_update_rng = jax.random.split(rng, 4)
+                    rng, batch_sample_rng, q_update_rng, actor_update_rng = jax.random.split(rng, 4)
                     train_state = runner_state.train_states
                     buffer_state = runner_state.buffer_state
                     # # # jax.debug.print('updating networks')
@@ -614,22 +627,35 @@ def make_train(config, save_train_state=True):
                             next_ac_in
                         )
 
-                        pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-                        notneeded, raw_log_prob = pi.sample_and_log_prob(seed=rng) 
-                        pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
-                        action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
+                        # pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+                        # action, log_prob = pi.sample_and_log_prob(seed=rng) # testing with no bijecotr
+                        
+                        act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
+                        pi = tfd.Independent(
+                            TanhTransformedDistribution(act_distribution),
+                            reinterpreted_batch_ndims=1,
+                        )
+                        act_loss_action = pi.sample(seed=rng)
+                        log_prob = pi.log_prob(act_loss_action)
+                            
+                        # pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+                        # action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
                         jax.debug.print("Log Prob Calculation: {x}", x=log_prob)
-                        jax.debug.print("Log Prob sans Tanh: {y}", y = raw_log_prob)
-                        jax.debug.print("means and std: {x} {y}", x=actor_mean, y=actor_std)
-                        breakpoint()
+                        # jax.debug.print("Log Prob sans Tanh: {y}", y = raw_log_prob)
+                        # jax.debug.print("means and std: {x} {y}", x=actor_mean, y=actor_std)
+                        # 
+                        # breakpoint()
+                        
+                        
+                        
 
                         q1_values = train_state.q1.apply_fn(
                             q1_params, 
-                            obs_global, flatten_actions(action)
+                            obs_global, flatten_actions(act_loss_action)
                         )
                         q2_values = train_state.q2.apply_fn(
                             q2_params,
-                            obs_global, flatten_actions(action)        
+                            obs_global, flatten_actions(act_loss_action)        
                         )
                         q_value = jnp.minimum(q1_values, q2_values)
                         
@@ -663,46 +689,91 @@ def make_train(config, save_train_state=True):
                     
                     avail_actions = jax.lax.stop_gradient(avail_actions)
 
-                    next_act_mean, next_act_std = train_state.actor.apply_fn(
-                        actor_params, 
-                        (next_obs, dones, avail_actions),
-                    )
-                    jax.debug.print(" next means and std: {x} {y}", x=next_act_mean, y=next_act_std)
-
-                    next_pi = distrax.MultivariateNormalDiag(next_act_mean, next_act_std)
-                    nono, next_raw_log_prob = next_pi.sample_and_log_prob(seed=rng)
-                    next_pi_tanh = distrax.Transformed(next_pi, bijector=tanh_bijector)
-                    next_action, next_log_prob = next_pi_tanh.sample_and_log_prob(seed=rng) # these have shape (batch_size, num_agents, num_envs, act_dim) as expected for the qnetworks
-                    jax.debug.print("Next Log Prob Calculation: {x}", x=next_log_prob)
-                    jax.debug.print("Next Log Prob sans Tanh: {y}", y = next_raw_log_prob)
-                    breakpoint()
-                    # for checking actions
+                    def update_q(train_state):
                     
-                    # compute q target
-                    next_q1 = train_state.q1.apply_fn(
-                        train_state.q1_target, 
-                        next_obs_global, flatten_actions(next_action) # change to global obs and falttened actions
-                    )
-                    next_q2 = train_state.q2.apply_fn(
-                        train_state.q2_target, 
-                        next_obs_global, flatten_actions(next_action) # change to global obs and falttened actions
-                    )
-            
-                    next_q = jnp.minimum(next_q1, next_q2)
-                    # for checking the minimum vals
-                    next_q = next_q - jnp.exp(train_state.log_alpha) * next_log_prob
-                    # breakpoint()
-                    # TODO: I don't think this is an issue but next_q is a single value and then get broadcast to each agent (I assume the same value for both I guess this is wanted MAVA does something more fancy)
-                    target_q = reward + config["GAMMA"] * (1.0 - dones) * next_q
-                    # breakpoint() # do I need to reshape all of this as well to a be a single value?
-                    q_grad_fun = jax.value_and_grad(q_loss_fn, argnums=(0,1), has_aux=True)
-                    (q_loss, (q1_loss, q2_loss)), (q1_grads, q2_grads) = q_grad_fun(
-                        train_state.q1.params, 
-                        train_state.q2.params, 
-                        obs_global, # global_obs,
-                        flatten_actions(action),
-                        target_q,
+                        next_act_mean, next_act_std = train_state.actor.apply_fn(
+                            actor_params, 
+                            (next_obs, dones, avail_actions),
                         )
+                        # jax.debug.print(" next means and std: {x} {y}", x=next_act_mean, y=next_act_std)
+
+                        # next_pi = distrax.MultivariateNormalDiag(next_act_mean, next_act_std)
+                        # next_action, next_log_prob = next_pi.sample_and_log_prob(seed=rng)
+
+                        next_act_distribution = tfd.Normal(loc=next_act_mean, scale=next_act_std)
+                        next_pi = tfd.Independent(
+                            TanhTransformedDistribution(next_act_distribution),
+                            reinterpreted_batch_ndims=1,
+                        )
+                        next_action = next_pi.sample(seed=q_update_rng)
+                        next_log_prob = next_pi.log_prob(next_action)
+                
+                        
+                        
+                        # next_pi_tanh = distrax.Transformed(next_pi, bijector=tanh_bijector)
+                        # next_action, next_log_prob = next_pi_tanh.sample_and_log_prob(seed=rng) # these have shape (batch_size, num_agents, num_envs, act_dim) as expected for the qnetworks
+                        jax.debug.print("Next Log Prob Calculation: {x}", x=next_log_prob)
+                        # jax.debug.print("Next Log Prob sans Tanh: {y}", y = next_raw_log_prob)
+                        # breakpoint()
+                        # for checking actions
+                    
+                        # compute q target
+                        next_q1 = train_state.q1.apply_fn(
+                            train_state.q1_target, 
+                            next_obs_global, flatten_actions(next_action) # change to global obs and falttened actions
+                        )
+                        next_q2 = train_state.q2.apply_fn(
+                            train_state.q2_target, 
+                            next_obs_global, flatten_actions(next_action) # change to global obs and falttened actions
+                        )
+            
+                        next_q = jnp.minimum(next_q1, next_q2)
+                        # for checking the minimum vals
+                        next_q = next_q - jnp.exp(train_state.log_alpha) * next_log_prob
+                        # breakpoint()
+                        # TODO: I don't think this is an issue but next_q is a single value and then get broadcast to each agent (I assume the same value for both I guess this is wanted MAVA does something more fancy)
+                        target_q = reward + config["GAMMA"] * (1.0 - dones) * next_q
+                        # breakpoint() # do I need to reshape all of this as well to a be a single value?
+                        q_grad_fun = jax.value_and_grad(q_loss_fn, argnums=(0,1), has_aux=True)
+                        (q_loss, (q1_loss, q2_loss)), (q1_grads, q2_grads) = q_grad_fun(
+                            train_state.q1.params, 
+                            train_state.q2.params, 
+                            obs_global, # global_obs,
+                            flatten_actions(action),
+                            target_q,
+                            )
+                        
+                        new_q1_train_state = train_state.q1.apply_gradients(grads=q1_grads)
+                        new_q2_train_state = train_state.q2.apply_gradients(grads=q2_grads)
+                        new_q1_target = optax.incremental_update(
+                            new_q1_train_state.params,
+                            train_state.q1_target,
+                            config["TAU"],
+                        )
+                        new_q2_target = optax.incremental_update(
+                            new_q2_train_state.params,
+                            train_state.q2_target,
+                            config["TAU"],
+                        )
+
+                        q_update_train_state = SACTrainStates( # TODO: use ._replace method instead
+                            actor=train_state.actor,
+                            q1=new_q1_train_state,
+                            q2=new_q2_train_state,
+                            q1_target=new_q1_target,
+                            q2_target=new_q2_target,
+                            log_alpha=train_state.log_alpha,
+                            alpha_opt_state=train_state.alpha_opt_state,
+                        )
+                        
+                        q_metrics = {
+                            'critic_loss': q_loss,
+                            'q1_loss': q1_loss,
+                            'q2_loss': q2_loss,
+                            'next_log_prob': next_log_prob
+                            }
+                        
+                        return q_update_train_state, q_metrics
 
                     # actor loss and gradient 
                     def _update_actor_and_alpha(carry, _):
@@ -750,52 +821,54 @@ def make_train(config, save_train_state=True):
                             }
                         return (act_update_train_state, actor_metrics), _
                     
+                    q_update_train_state, q_info = update_q(train_state)
+
                     (actor_update_train_state, actor_info), _ = jax.lax.cond(
                         runner_state.t % config["POLICY_UPDATE_DELAY"] == 0,
                         lambda: jax.lax.scan(_update_actor_and_alpha, 
-                                             (train_state, {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0}),
+                                             (q_update_train_state, {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0}),
                                              None,
                                              length=config["POLICY_UPDATE_DELAY"]), 
-                        lambda: ((train_state, 
+                        lambda: ((q_update_train_state, 
                                 {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0}), None)
                     )
 
-                    new_q1_train_state = train_state.q1.apply_gradients(grads=q1_grads)
-                    new_q2_train_state = train_state.q2.apply_gradients(grads=q2_grads)
-                    new_q1_target = optax.incremental_update(
-                        new_q1_train_state.params,
-                        train_state.q1_target,
-                        config["TAU"],
-                    )
-                    new_q2_target = optax.incremental_update(
-                        new_q2_train_state.params,
-                        train_state.q2_target,
-                        config["TAU"],
-                    )
+                    # new_q1_train_state = train_state.q1.apply_gradients(grads=q1_grads)
+                    # new_q2_train_state = train_state.q2.apply_gradients(grads=q2_grads)
+                    # new_q1_target = optax.incremental_update(
+                    #     new_q1_train_state.params,
+                    #     train_state.q1_target,
+                    #     config["TAU"],
+                    # )
+                    # new_q2_target = optax.incremental_update(
+                    #     new_q2_train_state.params,
+                    #     train_state.q2_target,
+                    #     config["TAU"],
+                    # )
                     
                     # I hope the carry works as expected and at the end of the scan the newest train state is returned
                     new_train_state = SACTrainStates(
                         actor=actor_update_train_state.actor,
-                        q1=new_q1_train_state,
-                        q2=new_q2_train_state,
-                        q1_target=new_q1_target,
-                        q2_target=new_q2_target,
+                        q1=q_update_train_state.q1,
+                        q2=q_update_train_state.q2,
+                        q1_target=q_update_train_state.q1_target,
+                        q2_target=q_update_train_state.q2_target,
                         log_alpha=actor_update_train_state.log_alpha,
                         alpha_opt_state=actor_update_train_state.alpha_opt_state,
                     )
 
                     metrics = {
-                        'critic_loss': q_loss,
-                        'q1_loss': q1_loss,
-                        'q2_loss': q2_loss,
+                        'critic_loss': q_info["critic_loss"],
+                        'q1_loss': q_info["q1_loss"],
+                        'q2_loss': q_info["q2_loss"],
                         'actor_loss': actor_info["actor_loss"],
                         'alpha_loss': actor_info["alpha_loss"],
                         'alpha': jnp.exp(actor_update_train_state.log_alpha),
                         'log_probs': actor_info["mean_log_prob"],
-                        "next_log_probs": next_log_prob.mean(),
+                        "next_log_probs": q_info["next_log_prob"].mean(),
                         "actor_update_step": actor_update_train_state.actor.step,
-                        "q1_update_step": new_q1_train_state.step,
-                        "q2_update_step": new_q2_train_state.step,
+                        "q1_update_step": q_update_train_state.q1.step,
+                        "q2_update_step": q_update_train_state.q2.step,
                         "step_counter": runner_state.t 
                     }
 
@@ -937,10 +1010,20 @@ def make_evaluation(config):
             # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
             # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
-            pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-            pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+            # pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+            # action, log_prob = pi.sample_and_log_prob(seed=action_rng)
 
-            action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+            act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
+            pi = tfd.Independent(
+                    TanhTransformedDistribution(act_distribution),
+                    reinterpreted_batch_ndims=1,
+                )
+            action = pi.sample(seed=action_rng)
+            log_prob = pi.log_prob(action)
+            
+            # pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+
+            # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
             env_act = unbatchify(action, env.agents)
 

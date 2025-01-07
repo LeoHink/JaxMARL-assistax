@@ -59,7 +59,7 @@ GAMMA: 0.99  # discount factor
 NUM_SAC_UPDATES: 32 # Epochs over data
 ROLLOUT_LENGTH: 8 # number of environment steps per vectorised environment.
 
-AUTOTUNE: False  # whether to autotune alpha
+AUTOTUNE: True  # whether to autotune alpha
 TARGET_ENTROPY_SCALE: 5.0  # scale factor for target entropy (when auto-tuning)
 INIT_ALPHA: 0.1  # initial entropy value when not using autotune
 
