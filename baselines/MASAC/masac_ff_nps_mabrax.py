@@ -455,6 +455,8 @@ def make_train(config, save_train_state=True):
                 )
             
             t = runner_state.t + config["NUM_ENVS"]
+
+            jax.debug.print("Explore step T: {x}", x = t)
             
             last_obs_batch = batchify(runner_state.last_obs, env.agents)
             done_batch = batchify(done, env.agents)
@@ -551,9 +553,10 @@ def make_train(config, save_train_state=True):
 
                     t = runner_state.t + config["NUM_ENVS"]
 
+                    jax.debug.print("Env Step T: {x}", x=t)
+
                     new_total_steps = runner_state.total_env_steps + config["NUM_ENVS"]
 
-                    jax.debug.print("Observation: {z}", z=obsv)
                     runner_state = RunnerState(
                         train_states=runner_state.train_states,
                         env_state=env_state,
@@ -582,6 +585,8 @@ def make_train(config, save_train_state=True):
                     runner_state.buffer_state,
                     traj_batch_reshaped, # move batch axis to start
                 )
+
+                runner_state = runner_state._replace(buffer_state=new_buffer_state)
                 # breakpoint()
                 def _update_networks(runner_state, rng): 
                     rng, batch_sample_rng, q_update_rng, actor_update_rng = jax.random.split(rng, 4)
