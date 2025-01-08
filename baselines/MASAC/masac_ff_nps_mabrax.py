@@ -457,6 +457,7 @@ def make_train(config, save_train_state=True):
             t = runner_state.t + config["NUM_ENVS"]
 
             jax.debug.print("Explore step T: {x}", x = t)
+            jax.debug.print("Explore step runner_state.t: {x}", x=runner_state.t)
             
             last_obs_batch = batchify(runner_state.last_obs, env.agents)
             done_batch = batchify(done, env.agents)
@@ -554,6 +555,7 @@ def make_train(config, save_train_state=True):
                     t = runner_state.t + config["NUM_ENVS"]
 
                     jax.debug.print("Env Step T: {x}", x=t)
+                    jax.debug.print("Env Step runner_state.t {x}", x=runner_state.t)
 
                     new_total_steps = runner_state.total_env_steps + config["NUM_ENVS"]
 
@@ -645,7 +647,7 @@ def make_train(config, save_train_state=True):
                             
                         # pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
                         # action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
-                        jax.debug.print("Log Prob Calculation: {x}", x=log_prob)
+                        # jax.debug.print("Log Prob Calculation: {x}", x=log_prob)
                         # jax.debug.print("Log Prob sans Tanh: {y}", y = raw_log_prob)
                         # jax.debug.print("means and std: {x} {y}", x=actor_mean, y=actor_std)
                         # 
@@ -717,7 +719,7 @@ def make_train(config, save_train_state=True):
                         
                         # next_pi_tanh = distrax.Transformed(next_pi, bijector=tanh_bijector)
                         # next_action, next_log_prob = next_pi_tanh.sample_and_log_prob(seed=rng) # these have shape (batch_size, num_agents, num_envs, act_dim) as expected for the qnetworks
-                        jax.debug.print("Next Log Prob Calculation: {x}", x=next_log_prob)
+                        # jax.debug.print("Next Log Prob Calculation: {x}", x=next_log_prob)
                         # jax.debug.print("Next Log Prob sans Tanh: {y}", y = next_raw_log_prob)
                         # breakpoint()
                         # for checking actions
