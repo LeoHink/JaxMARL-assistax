@@ -692,7 +692,7 @@ def make_train(config, save_train_state=True):
                     def update_q(train_state):
                     
                         next_act_mean, next_act_std = train_state.actor.apply_fn(
-                            actor_params, 
+                            train_state.actor.params, 
                             (next_obs, dones, avail_actions),
                         )
                         # jax.debug.print(" next means and std: {x} {y}", x=next_act_mean, y=next_act_std)
