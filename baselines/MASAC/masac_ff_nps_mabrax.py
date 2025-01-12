@@ -36,10 +36,6 @@ from flax.traverse_util import flatten_dict
 import sys
 print(sys.executable)
 
-# os.environ['WANDB_DIR'] = './wandb'
-# os.environ['WANDB_CACHE_DIR'] = './wandb'
-# os.environ['WANDB_CONFIG_DIR'] = './wandb'
-# os.environ['WANDB_DATA_DIR'] = './wandb'
 
 # Helper functions remain the same
 def _tree_take(pytree, indices, axis=None):
@@ -184,8 +180,6 @@ class SACQNetwork(nn.Module):
         
         return jnp.squeeze(x, axis=-1)
 
-
-
 class Transition(NamedTuple):
     obs: jnp.ndarray
     obs_global: jnp.ndarray
@@ -195,12 +189,6 @@ class Transition(NamedTuple):
     next_obs: jnp.ndarray
     next_obs_global: jnp.ndarray
 
-# class UpdateState(NamedTuple):
-#     train_state: TrainState
-#     traj_batch: Transition
-#     q1_target: jnp.ndarray
-#     q2_target: jnp.ndarray
-#     rng: jnp.ndarray
 
 class SACTrainStates(NamedTuple):
     actor: TrainState
@@ -269,41 +257,29 @@ def flatten_actions(x):
     act_dim = x.shape[2]
     return x.reshape(n_envs, n_agents * act_dim)
 
-# from Mava
-# def get_joint_action(actions):
-#     """Get the joint action from the individual actions of the agents.
-
-#     Joint actions are simply the concatenation of all agents actions.
-#     Shapes are transformed from (B, A, Act) -> (B, A, A * Act).
-#     Note: this returns the same joint action tiled for each agent.
-
-#     Args:
-#     ----
-#         actions (B, A, Act): the individual actions of the agents.
-
-#     Returns: (B, A, A * Act): the joint action repeated for each agent.
-
-#     """
-#     batch_size, num_agents, act_size = actions.shape
-#     repeated_action = jnp.tile(actions[:, jnp.newaxis, ...], (1, num_agents, 1, 1))
-#     return jnp.reshape(repeated_action, (batch_size, num_agents, act_size * num_agents))
-
 
 def make_train(config, save_train_state=True): 
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    config["NUM_UPDATES"] = (
-        config["TOTAL_TIMESTEPS"] // config["ROLLOUT_LENGTH"] // config["NUM_ENVS"]
-    )
+    config["NUM_UPDATES"] = jnp.ceil(
+        config["TOTAL_TIMESTEPS"] / config["ROLLOUT_LENGTH"] / config["NUM_ENVS"]
+    ) # round up to do at least config["TOTAL_TIMESTEPS"]
+    config["TOTAL_TIMESTEPS"] = config["NUM_UPDATES"] * config["ROLLOUT_LENGTH"] * config["NUM_ENVS"] # recalculate actual total timesteps
     config["SCAN_STEPS"] = config["NUM_UPDATES"] // config["NUM_CHECKPOINTS"]
     config["EXPLORE_SCAN_STEPS"] = config["EXPLORE_STEPS"] // config["NUM_ENVS"]
-    print(f"NUM_UPDATES: {config['NUM_UPDATES']} \n SCAN_STEPS: {config['SCAN_STEPS']} \n EXPLORE_STEPS: {config['EXPLORE_STEPS']} \n NUM_CHECKPOINTS: {config['NUM_CHECKPOINTS']}")
+    print(f"TOTAL_TIMESTEPS: {config['TOTAL_TIMESTEPS']} \n NUM_UPDATES: {config['NUM_UPDATES']} \n SCAN_STEPS: {config['SCAN_STEPS']} \n EXPLORE_STEPS: {config['EXPLORE_STEPS']} \n NUM_CHECKPOINTS: {config['NUM_CHECKPOINTS']}")
     print(f"Jax Running on: {jax.devices()}")
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))
     env = LogWrapper(env, replace_info=True)
     
-    def train(rng, p_lr, q_lr, alpha_lr): # TODO: Update these hparams for sweeping sac 
+    def train(rng, p_lr, q_lr, alpha_lr, tau): # TODO: Update these hparams for sweeping sac 
+        # Could sweep over alpha if we don't learn it. 
+        # Non contineous sweeps 
+        # - NUM SAC UPDATES
+        # - Batch Size 
+        # - Buffer Size 
+        # - Alpha when not using learning
 
         actor = MultiSACActor(config=config)
         q = SACQNetwork(config=config)
@@ -337,13 +313,6 @@ def make_train(config, save_train_state=True):
         action_space = env.action_space(env.agents[0])
         action = jnp.zeros((env.num_agents, config["NUM_ENVS"], action_space.shape[0]))
 
-        # init_transition = Transition(
-        #     obs=batchify(obsv, env.agents),
-        #     action=action,
-        #     reward=jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=float),
-        #     done=init_dones,
-        #     next_obs=batchify(obsv, env.agents)
-        # )
 
         init_transition = Transition(
             obs=jnp.zeros((env.num_agents, get_space_dim(env.observation_space(env.agents[0]))), dtype=float),
@@ -354,12 +323,6 @@ def make_train(config, save_train_state=True):
             next_obs=jnp.zeros((env.num_agents, get_space_dim(env.observation_space(env.agents[0]))), dtype=float),
             next_obs_global=jnp.zeros(obsv["global"].shape[1], dtype=float),
         )
-
-        # init_transition_reshaped = jax.tree_util.tree_map(
-        #     lambda x: jnp.moveaxis(x, 1, 0),
-        #     init_transition
-        # )
-
         rb = fbx.make_item_buffer(
             max_length=config["BUFFER_SIZE"],
             min_length=config["EXPLORE_STEPS"],
@@ -367,18 +330,16 @@ def make_train(config, save_train_state=True):
             add_batches=True,
         )
 
-                                                                                                                                                
-        # buffer_state = rb.init(_tree_take(init_transition, 0, axis=1))
         buffer_state = rb.init(init_transition)
-        # breakpoint()
+
         target_entropy = -config["TARGET_ENTROPY_SCALE"] * config["ACT_DIM"]
-        target_entropy = jnp.repeat(target_entropy, env.num_agents) # do I need to have a different shape for this as currently this means that bot log_alphas are the same for each agents
+        target_entropy = jnp.repeat(target_entropy, env.num_agents) 
         target_entropy = target_entropy[:, jnp.newaxis]
-        # breakpoint()
+
 
         if config["AUTOTUNE"]:
             log_alpha = jnp.zeros_like(target_entropy)
-        else: # TODO: catually implement the non autotune case
+        else: 
             log_alpha = jnp.log(config["INIT_ALPHA"])
             log_alpha = jnp.broadcast_to(log_alpha, target_entropy.shape)
 
@@ -436,18 +397,14 @@ def make_train(config, save_train_state=True):
         )
 
         
-        # breakpoint()
-        
         def _explore(runner_state, unused):
             
-            # breakpoint()
             rng, explore_rng = jax.random.split(runner_state.rng)
             avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
             
             avail_actions_shape = batchify(avail_actions, env.agents).shape
             action = jax.random.uniform(explore_rng, avail_actions_shape, minval=-1, maxval=1)
             env_act = unbatchify(action, env.agents)
-            # breakpoint() # compare random action to actual action
             rng_step = jax.random.split(explore_rng, config["NUM_ENVS"])
            
             obsv, env_state, reward, done, info = jax.vmap(env.step)(
@@ -456,13 +413,9 @@ def make_train(config, save_train_state=True):
             
             t = runner_state.t + config["NUM_ENVS"]
 
-            jax.debug.print("Explore step T: {x}", x = t)
-            jax.debug.print("Explore step runner_state.t: {x}", x=runner_state.t)
-            
             last_obs_batch = batchify(runner_state.last_obs, env.agents)
             done_batch = batchify(done, env.agents)
-            # breakpoint()
-            # maybe I should include info in the transition?
+
             transition = Transition(
                     obs = last_obs_batch,
                     obs_global = runner_state.last_obs["global"],
@@ -472,7 +425,9 @@ def make_train(config, save_train_state=True):
                     next_obs = batchify(obsv, env.agents),
                     next_obs_global = obsv["global"],
                 )
+            
             new_total_steps = runner_state.total_env_steps + config["NUM_ENVS"]
+            
             runner_state = RunnerState(
                 train_states=runner_state.train_states,
                 env_state=env_state,
@@ -484,24 +439,20 @@ def make_train(config, save_train_state=True):
                 total_env_steps = new_total_steps,
                 total_grad_updates = runner_state.total_grad_updates
             )
-            # breakpoint()
 
             return runner_state, transition 
         
         
         def _checkpoint_step(runner_state, unused):
             """ Used to reduce amount of parameters we save during training. """
-            # # jax.debugprint('doing the checkpoint step')
 
             def _update_step(runner_state, unused):
                 """ The SAC update"""
             
-                # # # jax.debug.print('doing the update step')
 
                 def _env_step(runner_state, unused):
                     """ Step the environment """
-                    # # breakpoint()
-                    # # # jax.debug.print('env_stepping')
+
                     rng = runner_state.rng
                     obs_batch = batchify(runner_state.last_obs, env.agents)
                     avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
@@ -518,19 +469,18 @@ def make_train(config, save_train_state=True):
                         ac_in
                         )
                     
-                    # pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-                    # action = pi.sample(seed=action_rng) # testing with no bijector
+                    pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
                     
                     # tfd variation 
-                    act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
-                    pi = tfd.Independent(
-                        TanhTransformedDistribution(act_distribution),
-                        reinterpreted_batch_ndims=1,
-                    )
-                    action = pi.sample(seed=action_rng)
+                    # act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
+                    # pi = tfd.Independent(
+                    #     TanhTransformedDistribution(act_distribution),
+                    #     reinterpreted_batch_ndims=1,
+                    # )
+                    # action = pi.sample(seed=action_rng)
                     
-                    # pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)    
-                    # action = pi_tanh.sample(seed=action_rng)
+                    pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)    
+                    action = pi_tanh.sample(seed=action_rng)
                     env_act = unbatchify(action, env.agents)
 
                     #STEP ENV
@@ -553,9 +503,6 @@ def make_train(config, save_train_state=True):
                     )
 
                     t = runner_state.t + config["NUM_ENVS"]
-
-                    jax.debug.print("Env Step T: {x}", x=t)
-                    jax.debug.print("Env Step runner_state.t {x}", x=runner_state.t)
 
                     new_total_steps = runner_state.total_env_steps + config["NUM_ENVS"]
 
@@ -596,19 +543,16 @@ def make_train(config, save_train_state=True):
                     buffer_state = runner_state.buffer_state
                     # # # jax.debug.print('updating networks')
                     batch = rb.sample(buffer_state, batch_sample_rng).experience
-                    # breakpoint()
                     
                     batch = jax.tree_util.tree_map(
                         lambda x, f: x.swapaxes(0, 1) if not ('global' in f) else x,
                         batch,
                         type(batch)(*[name for name in batch._fields])
                     )
-                                        
-                    # breakpoint()
 
                     #UPDATE Q_NETWORKS
                     def q_loss_fn(q1_online_params, q2_online_params, obs, action, target_q):
-                        # # jax.debug.print('getting q_loss')
+
                         current_q1 = train_state.q1.apply_fn(
                             q1_online_params, 
                             obs, action
@@ -621,12 +565,11 @@ def make_train(config, save_train_state=True):
                         # MSE loss for both Q-networks
                         q1_loss = jnp.mean(jnp.square(current_q1 - target_q))
                         q2_loss = jnp.mean(jnp.square(current_q2 - target_q))
-                        # # jax.debug.# breakpoint()
                         return q1_loss + q2_loss, (q1_loss, q2_loss)
                     
                     # loss for the actor
                     def actor_loss_fn(actor_params, q1_params, q2_params, obs, obs_global, dones, alpha, rng, avail_actions):
-                        # # jax.debug.print('getting actor loss')
+
                         next_ac_in = (obs, dones, avail_actions)
 
                         actor_mean, actor_std = train_state.actor.apply_fn(
@@ -634,27 +577,18 @@ def make_train(config, save_train_state=True):
                             next_ac_in
                         )
 
-                        # pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-                        # action, log_prob = pi.sample_and_log_prob(seed=rng) # testing with no bijecotr
+                        pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
                         
-                        act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
-                        pi = tfd.Independent(
-                            TanhTransformedDistribution(act_distribution),
-                            reinterpreted_batch_ndims=1,
-                        )
-                        act_loss_action = pi.sample(seed=rng)
-                        log_prob = pi.log_prob(act_loss_action)
+                        # act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
+                        # pi = tfd.Independent(
+                        #     TanhTransformedDistribution(act_distribution),
+                        #     reinterpreted_batch_ndims=1,
+                        # )
+                        # act_loss_action = pi.sample(seed=rng)
+                        # log_prob = pi.log_prob(act_loss_action)
                             
-                        # pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
-                        # action, log_prob = pi_tanh.sample_and_log_prob(seed=rng)
-                        # jax.debug.print("Log Prob Calculation: {x}", x=log_prob)
-                        # jax.debug.print("Log Prob sans Tanh: {y}", y = raw_log_prob)
-                        # jax.debug.print("means and std: {x} {y}", x=actor_mean, y=actor_std)
-                        # 
-                        # breakpoint()
-                        
-                        
-                        
+                        pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+                        act_loss_action, log_prob = pi_tanh.sample_and_log_prob(seed=rng) 
 
                         q1_values = train_state.q1.apply_fn(
                             q1_params, 
@@ -668,27 +602,22 @@ def make_train(config, save_train_state=True):
                         
                         # actor loss with entropy
                         actor_loss = jnp.mean((alpha * log_prob) - q_value)
-                        # # jax.debug.# breakpoint()
-                        # # breakpoint() # for checking actor loss
+
                         return actor_loss, log_prob
                     
                     def alpha_loss_fn(log_alpha, log_pi, target_entropy):
-                        # # jax.debug.print('getting alpha loss')
+
                         return jnp.mean(-jnp.exp(log_alpha) * (log_pi + target_entropy))
                     
                     
                     # Q networks loss and gradient 
-
                     obs = batch.obs
                     obs_global = batch.obs_global
                     dones = batch.done
                     action = batch.action
-                    # breakpoint()
-                    # action_global = flatten_actions(action)
                     next_obs = batch.next_obs
                     next_obs_global = batch.next_obs_global
                     reward = batch.reward
-                    # breakpoint()
 
                     avail_actions =  jnp.zeros( # avail_actions
                             (env.num_agents, config["NUM_ENVS"]*config["BATCH_SIZE"], config["ACT_DIM"])
@@ -702,27 +631,18 @@ def make_train(config, save_train_state=True):
                             train_state.actor.params, 
                             (next_obs, dones, avail_actions),
                         )
-                        # jax.debug.print(" next means and std: {x} {y}", x=next_act_mean, y=next_act_std)
 
-                        # next_pi = distrax.MultivariateNormalDiag(next_act_mean, next_act_std)
-                        # next_action, next_log_prob = next_pi.sample_and_log_prob(seed=rng)
+                        next_pi = distrax.MultivariateNormalDiag(next_act_mean, next_act_std)
 
-                        next_act_distribution = tfd.Normal(loc=next_act_mean, scale=next_act_std)
-                        next_pi = tfd.Independent(
-                            TanhTransformedDistribution(next_act_distribution),
-                            reinterpreted_batch_ndims=1,
-                        )
-                        next_action = next_pi.sample(seed=q_update_rng)
-                        next_log_prob = next_pi.log_prob(next_action)
-                
-                        
-                        
-                        # next_pi_tanh = distrax.Transformed(next_pi, bijector=tanh_bijector)
-                        # next_action, next_log_prob = next_pi_tanh.sample_and_log_prob(seed=rng) # these have shape (batch_size, num_agents, num_envs, act_dim) as expected for the qnetworks
-                        # jax.debug.print("Next Log Prob Calculation: {x}", x=next_log_prob)
-                        # jax.debug.print("Next Log Prob sans Tanh: {y}", y = next_raw_log_prob)
-                        # breakpoint()
-                        # for checking actions
+                        # next_act_distribution = tfd.Normal(loc=next_act_mean, scale=next_act_std)
+                        # next_pi = tfd.Independent(
+                        #     TanhTransformedDistribution(next_act_distribution),
+                        #     reinterpreted_batch_ndims=1,
+                        # )
+                        # next_action = next_pi.sample(seed=q_update_rng)
+                        # next_log_prob = next_pi.log_prob(next_action)
+                        next_pi_tanh = distrax.Transformed(next_pi, bijector=tanh_bijector)
+                        next_action, next_log_prob = next_pi_tanh.sample_and_log_prob(seed=rng)
                     
                         # compute q target
                         next_q1 = train_state.q1.apply_fn(
@@ -735,12 +655,9 @@ def make_train(config, save_train_state=True):
                         )
             
                         next_q = jnp.minimum(next_q1, next_q2)
-                        # for checking the minimum vals
                         next_q = next_q - jnp.exp(train_state.log_alpha) * next_log_prob
-                        # breakpoint()
-                        # TODO: I don't think this is an issue but next_q is a single value and then get broadcast to each agent (I assume the same value for both I guess this is wanted MAVA does something more fancy)
                         target_q = reward + config["GAMMA"] * (1.0 - dones) * next_q
-                        # breakpoint() # do I need to reshape all of this as well to a be a single value?
+
                         q_grad_fun = jax.value_and_grad(q_loss_fn, argnums=(0,1), has_aux=True)
                         (q_loss, (q1_loss, q2_loss)), (q1_grads, q2_grads) = q_grad_fun(
                             train_state.q1.params, 
@@ -797,7 +714,6 @@ def make_train(config, save_train_state=True):
                             actor_update_rng,
                             avail_actions,
                         )
-                        # # jax.debug.# breakpoint() # for checking log alpha and returned_log_prob
 
                         # alphaloss and gradient update
                         temperature_loss = 0.0
@@ -840,20 +756,6 @@ def make_train(config, save_train_state=True):
                                 {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0}), None)
                     )
 
-                    # new_q1_train_state = train_state.q1.apply_gradients(grads=q1_grads)
-                    # new_q2_train_state = train_state.q2.apply_gradients(grads=q2_grads)
-                    # new_q1_target = optax.incremental_update(
-                    #     new_q1_train_state.params,
-                    #     train_state.q1_target,
-                    #     config["TAU"],
-                    # )
-                    # new_q2_target = optax.incremental_update(
-                    #     new_q2_train_state.params,
-                    #     train_state.q2_target,
-                    #     config["TAU"],
-                    # )
-                    
-                    # I hope the carry works as expected and at the end of the scan the newest train state is returned
                     new_train_state = SACTrainStates(
                         actor=actor_update_train_state.actor,
                         q1=q_update_train_state.q1,
@@ -890,31 +792,16 @@ def make_train(config, save_train_state=True):
                         total_env_steps=runner_state.total_env_steps,
                         total_grad_updates=new_train_state.actor.step
                     )
-                    # jax.debug.print("Q update Network Step {x}", x=train_state.q1.step)
-                    # jax.debug.print("Actor update Network Step {x}", x = train_state.actor.step)
+
                     return runner_state, metrics
                 
                 _, u_rng = jax.random.split(runner_state.rng)
 
                 update_rngs = jax.random.split(u_rng, config["NUM_SAC_UPDATES"])
-                # breakpoint()
+
                 runner_state, metrics = jax.lax.scan(_update_networks, runner_state, update_rngs)
                 metrics = jax.tree.map(lambda x: x.mean(), metrics)
                 
-                # runner_state = RunnerState(
-                #     train_states=updated_train_state, # replace trainstate
-                #     env_state=runner_state.env_state,
-                #     last_obs=runner_state.last_obs,
-                #     last_done=runner_state.last_done,
-                #     t=runner_state.t,
-                #     buffer_state=updated_buffer_state,
-                #     rng=runner_state.rng,
-                #     total_env_steps=runner_state.total_env_steps,
-                #     total_grad_updates=updated_train_state.actor.step
-                # )
-
-                # jax.debugprint("Update Step {x}", x=updated_train_state.actor.step)
-
                 return runner_state, metrics
             
             runner_state, metrics = jax.lax.scan(
@@ -930,7 +817,6 @@ def make_train(config, save_train_state=True):
             return runner_state, metrics
         
         # Exploration before training
-        # breakpoint()
         explore_runner_state, explore_traj_batch = jax.lax.scan(
                 _explore, runner_state, None, config["EXPLORE_SCAN_STEPS"]
             )
@@ -947,9 +833,6 @@ def make_train(config, save_train_state=True):
         ) 
         
 
-        # breakpoint()
-        
-        # changed this to reflect the explore info gathered for training
         explore_runner_state = RunnerState(
             train_states=explore_runner_state.train_states,
             env_state=explore_runner_state.env_state,
@@ -965,9 +848,8 @@ def make_train(config, save_train_state=True):
 
         final_runner_state, checkpoint_metrics = jax.lax.scan(
             _checkpoint_step, explore_runner_state, None, config["NUM_CHECKPOINTS"]
-        ) # change 1 to config["NUM_CHECKPOINTS"] eventually
-        # jax.debugprint("Finished training with {x} number of gradient updates", x = final_runner_state.train_states.actor.step)
-        # jax.debugprint("Finished training with {x} environment steps", x = final_runner_state.total_env_steps)
+        ) 
+
         return {"runner_state": final_runner_state, "metrics": checkpoint_metrics}
     
     return train
@@ -1017,20 +899,19 @@ def make_evaluation(config):
             # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
             # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
-            # pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-            # action, log_prob = pi.sample_and_log_prob(seed=action_rng)
-
-            act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
-            pi = tfd.Independent(
-                    TanhTransformedDistribution(act_distribution),
-                    reinterpreted_batch_ndims=1,
-                )
-            action = pi.sample(seed=action_rng)
-            log_prob = pi.log_prob(action)
+            pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+ 
+            # act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
+            # pi = tfd.Independent(
+            #         TanhTransformedDistribution(act_distribution),
+            #         reinterpreted_batch_ndims=1,
+            #     )
+            # action = pi.sample(seed=action_rng)
+            # log_prob = pi.log_prob(action)
             
-            # pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+            pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
 
-            # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+            action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
             env_act = unbatchify(action, env.agents)
 
@@ -1042,17 +923,7 @@ def make_evaluation(config):
             )
             done_batch = batchify(done, env.agents)
             info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
-            
-            # q1_value = runner_state.train_states.q1.apply_fn(
-            #     runner_state.train_states.q1.params,
-            #     ac_in, action
-            # )
-
-            # q2_value = runner_state.train_states.q2.apply_fn(
-            #     runner_state.train_states.q2.params,
-            #     ac_in, action
-            # )
-            
+                        
             eval_info = EvalInfo(
                 env_state=(env_state if log_env_state else None),
                 done=done,
@@ -1108,9 +979,9 @@ def main(config):
             device=jax.devices()[config["DEVICE"]]
         )
         # first run (includes JIT)
-        out = jax.vmap(train_jit, in_axes=(0, None, None, None))(
+        out = jax.vmap(train_jit, in_axes=(0, None, None, None, None))(
             train_rngs,
-            config["LR"], config["ENT_COEF"], config["CLIP_EPS"] # TODO: Change these for SAC sweep
+            config["POLICY_LR"], config["Q_LR"], config["ALPHA_LR"], config["TAU"] # TODO: Change these for SAC sweep
         )
 
         # SAVE TRAIN METRICS
@@ -1217,7 +1088,7 @@ def main(config):
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
  
         evals = _concat_tree([
-            eval_vmap(eval_rng, ts, False)
+            eval_vmap(eval_rng, ts, False) # Changed to true for rendering but get OOM 
             for ts in tqdm(split_trainstate, desc="Evaluation batches")
         ])
         evals = jax.tree.map(
@@ -1243,31 +1114,31 @@ def main(config):
 
         # RENDER
         # Run episodes for render (saving env_state at each timestep)
-        # eval_final = eval_jit(eval_rng, _tree_take(final_train_state, 0, axis=0), True)
-        # first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
-        # first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
-        # first_episode_returns = first_episode_rewards.sum(axis=0)
-        # episode_argsort = jnp.argsort(first_episode_returns, axis=-1)
-        # worst_idx = episode_argsort.take(0,axis=-1)
-        # best_idx = episode_argsort.take(-1, axis=-1)
-        # median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
+        eval_final = eval_jit(eval_rng, _tree_take(final_train_state_actor, 0, axis=0), True)
+        first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
+        first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
+        first_episode_returns = first_episode_rewards.sum(axis=0)
+        episode_argsort = jnp.argsort(first_episode_returns, axis=-1)
+        worst_idx = episode_argsort.take(0,axis=-1)
+        best_idx = episode_argsort.take(-1, axis=-1)
+        median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
 
-        # from brax.io import html
-        # worst_episode = _take_episode(
-        #     eval_final.env_state.env_state.pipeline_state, first_episode_done,
-        #     time_idx=-1, eval_idx=worst_idx,
-        # )
-        # median_episode = _take_episode(
-        #     eval_final.env_state.env_state.pipeline_state, first_episode_done,
-        #     time_idx=-1, eval_idx=median_idx,
-        # )
-        # best_episode = _take_episode(
-        #     eval_final.env_state.env_state.pipeline_state, first_episode_done,
-        #     time_idx=-1, eval_idx=best_idx,
-        # )
-        # html.save("final_worst.html", eval_env.sys, worst_episode)
-        # html.save("final_median.html", eval_env.sys, median_episode)
-        # html.save("final_best.html", eval_env.sys, best_episode)
+        from brax.io import html
+        worst_episode = _take_episode(
+            eval_final.env_state.env_state.pipeline_state, first_episode_done,
+            time_idx=-1, eval_idx=worst_idx,
+        )
+        median_episode = _take_episode(
+            eval_final.env_state.env_state.pipeline_state, first_episode_done,
+            time_idx=-1, eval_idx=median_idx,
+        )
+        best_episode = _take_episode(
+            eval_final.env_state.env_state.pipeline_state, first_episode_done,
+            time_idx=-1, eval_idx=best_idx,
+        )
+        html.save("final_worst.html", eval_env.sys, worst_episode)
+        html.save("final_median.html", eval_env.sys, median_episode)
+        html.save("final_best.html", eval_env.sys, best_episode)
 
 
 if __name__ == "__main__":

@@ -44,7 +44,7 @@ POLICY_UPDATE_DELAY: 4  #TODO: implement this
 
 # sizes
 BUFFER_SIZE: 1000000  # size of the replay buffer. Note: total size is this * num_devices
-BATCH_SIZE: 16
+BATCH_SIZE: 128
 
 # learning rates
 POLICY_LR: 3e-4  # the learning rate of the policy network optimizer
@@ -76,11 +76,19 @@ DEVICE: 0
 # SWEEPER SETTINGS
 sweep:
   num_configs: 4
-  lr:
+  p_lr:
     min: -4.0
     max: -3.0
-  ent_coef: false
-  clip_eps: false
+  q_lr:
+    min: -4.0
+    max: -3.0
+  alpha_lr:
+    min: -4.0
+    max: -3.0
+  tau: 
+    min: -3.0
+    max: -1.0 # really though 
+
 
 # CROSSPLAY SETTINGS
 crossplay:
