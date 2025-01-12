@@ -138,7 +138,7 @@ def _generate_sweep_axes(rng, config):
         "tau": {"val": taus, "axis":tau_axis},
     }
 
-@hydra.main(version_base=None, config_path="config", config_name="ippo_mabrax")
+@hydra.main(version_base=None, config_path="config", config_name="masac_mabrax")
 def main(config):
     config_key = hash(config) % 2**62
     config_key = urlsafe_b64encode(
@@ -175,26 +175,30 @@ def main(config):
         out = jax.vmap(
             jax.vmap(
                 train_jit,
-                in_axes=(0, None, None, None)
+                in_axes=(0, None, None, None, None)
             ),
             in_axes=(
                 None,
-                sweep["lr"]["axis"],
-                sweep["ent_coef"]["axis"],
-                sweep["clip_eps"]["axis"],
+                sweep["p_lr"]["axis"],
+                sweep["q_lr"]["axis"],
+                sweep["alpha_lr"]["axis"],
+                sweep["tau"]["axis"],
             )
         )(
             train_rngs,
-            sweep["lr"]["val"],
-            sweep["ent_coef"]["val"],
-            sweep["clip_eps"]["val"],
+            sweep["p_lr"]["val"],
+            sweep["q_lr"]["val"],
+            sweep["alpha_lr"]["val"],
+            sweep["tau"]["val"]
         )
-
+        breakpoint()
         # SAVE TRAIN METRICS
-        EXCLUDED_METRICS = ["train_state"]
+        EXCLUDED_METRICS = ["actor_train_state", "q1_train_state", "q2_train_state"]
+        saveable_metrics = {key: val.copy() for key, val in out["metrics"].items() if key not in EXCLUDED_METRICS}
+        
         jnp.save(f"{config_key}/metrics.npy", {
             key: val
-            for key, val in out["metrics"].items()
+            for key, val in saveable_metrics.items()
             if key not in EXCLUDED_METRICS
             },
             allow_pickle=True
@@ -202,20 +206,26 @@ def main(config):
         
         # SAVE SWEEP HPARAMS
         jnp.save(f"{config_key}/hparams.npy", {
-            "lr": sweep["lr"]["val"],
-            "ent_coef": sweep["ent_coef"]["val"],
-            "clip_eps": sweep["clip_eps"]["val"],
-            "num_steps": config["NUM_STEPS"],
+            "p_lr": sweep["p_lr"]["val"],
+            "q_lr": sweep["q_lr"]["val"],
+            "alpha_lr": sweep["alpha_lr"]["val"],            
+            "tau": sweep["tau"]["val"],
+            "num_updates": config["NUM_UPDATES"],
+            "total_timesteps": config["TOTAL_TIMESTEPS"],
             "num_envs": config["NUM_ENVS"],
-            "update_epochs": config["UPDATE_EPOCHS"],
-            "num_minibatches": config["NUM_MINIBATCHES"],
+            "num_sac_updates": config["NUM_SAC_UPDATES"],
+            "batch_size": config["BATCH_SIZE"],
+            "buffer_size": config["BUFFER_SIZE"],
+            "rollout_length": config["ROLLOUT_LENGTH"],
+            "explore_steps": config["EXPLORE_STEPS"],
             }
         )
 
         # SAVE PARAMS
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-        all_train_states = out["metrics"]["train_state"]
-        final_train_state = out["runner_state"].train_state
+        all_train_states = out["metrics"]["actor_train_state"]
+        breakpoint()
+        final_train_state = out["runner_state"].train_states.actor
         safetensors.flax.save_file(
             flatten_dict(all_train_states.params, sep='/'),
             f"{config_key}/all_params.safetensors"
