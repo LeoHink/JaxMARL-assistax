@@ -325,7 +325,7 @@ def make_train(config, save_train_state=True):
             next_obs_global=jnp.zeros(obsv["global"].shape[1], dtype=float),
         )
         rb = fbx.make_item_buffer(
-            max_length=config["BUFFER_SIZE"],
+            max_length=int(config["BUFFER_SIZE"]), # adding for sweeping functionality to use 1e6 for buffer size in hydra multirun
             min_length=config["EXPLORE_STEPS"],
             sample_batch_size=int(config["BATCH_SIZE"]),
             add_batches=True,
