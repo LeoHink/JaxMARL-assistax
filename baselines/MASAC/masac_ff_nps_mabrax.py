@@ -212,6 +212,7 @@ class RunnerState(NamedTuple):
     rng: jnp.ndarray
     total_env_steps: int  # Add this
     total_grad_updates: int # Add this
+    update_t: int
 
 class EvalState(NamedTuple):
     train_states: SACTrainStates
@@ -394,6 +395,7 @@ def make_train(config, save_train_state=True):
             rng=rng,
             total_env_steps=0,
             total_grad_updates=0,
+            update_t=0,
         )
 
         
@@ -437,7 +439,8 @@ def make_train(config, save_train_state=True):
                 buffer_state=runner_state.buffer_state,
                 rng=rng,
                 total_env_steps = new_total_steps,
-                total_grad_updates = runner_state.total_grad_updates
+                total_grad_updates = runner_state.total_grad_updates,
+                update_t=runner_state.update_t,
             )
 
             return runner_state, transition 
@@ -515,7 +518,8 @@ def make_train(config, save_train_state=True):
                         buffer_state=runner_state.buffer_state,
                         rng=rng,
                         total_env_steps = new_total_steps,
-                        total_grad_updates = runner_state.total_grad_updates
+                        total_grad_updates = runner_state.total_grad_updates,
+                        update_t=runner_state.update_t,
                     )
 
                     return runner_state, transition
@@ -696,7 +700,7 @@ def make_train(config, save_train_state=True):
                             'q2_loss': q2_loss,
                             'next_log_prob': next_log_prob
                             }
-                        
+                        jax.debug.print("Updating Q")
                         return q_update_train_state, q_metrics
 
                     # actor loss and gradient 
@@ -742,12 +746,13 @@ def make_train(config, save_train_state=True):
                             "alpha_loss": temperature_loss, 
                             "mean_log_prob": log_prob.mean(), 
                             }
+                        jax.debug.print("Updating Actor")
                         return (act_update_train_state, actor_metrics), _
                     
                     q_update_train_state, q_info = update_q(train_state)
 
                     (actor_update_train_state, actor_info), _ = jax.lax.cond(
-                        runner_state.t % config["POLICY_UPDATE_DELAY"] == 0,
+                        runner_state.update_t % config["POLICY_UPDATE_DELAY"] == 0, # changed the t we use because of coprime thing 
                         lambda: jax.lax.scan(_update_actor_and_alpha, 
                                              (q_update_train_state, {'actor_loss': 0.0, 'alpha_loss': 0.0, 'mean_log_prob': 0.0}),
                                              None,
@@ -780,7 +785,7 @@ def make_train(config, save_train_state=True):
                         "q2_update_step": q_update_train_state.q2.step,
                         "step_counter": runner_state.t 
                     }
-
+                    new_update_t = runner_state.update_t + 1 # count the updates 
                     runner_state = RunnerState(
                         train_states=new_train_state,
                         env_state=runner_state.env_state,
@@ -790,7 +795,8 @@ def make_train(config, save_train_state=True):
                         buffer_state=buffer_state,
                         rng=runner_state.rng,
                         total_env_steps=runner_state.total_env_steps,
-                        total_grad_updates=new_train_state.actor.step
+                        total_grad_updates=new_train_state.actor.step,
+                        update_t=new_update_t
                     )
 
                     return runner_state, metrics
@@ -843,6 +849,7 @@ def make_train(config, save_train_state=True):
             rng=explore_runner_state.rng,
             total_env_steps=explore_runner_state.total_env_steps,
             total_grad_updates=explore_runner_state.total_grad_updates,
+            update_t=explore_runner_state.update_t
 
         )
 
