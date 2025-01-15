@@ -18,7 +18,7 @@ TOTAL_TIMESTEPS: 30e6
 NUM_ENVS: 32
 NUM_SEEDS: 2
 SEED: 1
-NUM_EVAL_EPISODES: 64
+NUM_EVAL_EPISODES: 64 # lower for rendering
 NUM_CHECKPOINTS: 128 # how often to save the training parameters for evaluating later
 
 TEST_DURING_TRAINING: True
@@ -98,7 +98,7 @@ crossplay:
     agent_1: /path/to/agent_1.safetensors
 
 eval: # path to actor all params for eval
-  path: /home/leo/Documents/1_PhD/assistax/JaxMARL/baselines/ISAC/outputs/mabrax/scratchitch/2024-12-03/20-33-43/actor_all_params.safetensors
+  path: /home/leo/assistax/JaxMARL/baselines/MASAC/outputs/mabrax/scratchitch/2024-12-08/16-26-22/actor_all_params.safetensors
 
 
 hydra:

@@ -245,15 +245,14 @@ class EvalInfo(NamedTuple):
 
 @struct.dataclass
 class EvalInfoLogConfig:
-    env_state: bool = True
-    done: bool = True
-    action: bool = True
-    value: bool = True
-    reward: bool = True
-    log_prob: bool = True
-    obs: bool = True
-    info: bool = True
-    avail_actions: bool = True
+    env_state=True,
+    done=True,
+    action=True,
+    reward=True,
+    log_prob=True,
+    obs=True,
+    info=True,
+    avail_actions=True,
     
 def reshape_for_buffer(x, f):
     if f not in ["obs_global", "next_obs_global"]:
@@ -883,7 +882,7 @@ def make_evaluation(config):
     max_steps = env.episode_length
     tanh_bijector = distrax.Block(distrax.Tanh(), ndims=1)
 
-    def run_evaluation(rng, train_state, log_env_state=False):
+    def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig()):
         rng_reset, rng_env = jax.random.split(rng)
         rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
         obsv, env_state = jax.vmap(env.reset)(rngs_reset)
@@ -946,14 +945,14 @@ def make_evaluation(config):
             info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
                         
             eval_info = EvalInfo(
-                env_state=(env_state if log_env_state else None),
-                done=done,
-                action=action,
-                reward=reward,
-                log_prob=log_prob,
-                obs=obs_batch,
-                info=info,
-                avail_actions=avail_actions,
+                env_state=(env_state if log_eval_info.env_state else None),
+                done=(done if log_eval_info.done else None),
+                action=(action if log_eval_info.action else None),
+                reward=(reward if log_eval_info.reward else None),
+                log_prob=(log_prob if log_eval_info.log_prob else None),
+                obs=(obs_batch if log_eval_info.obs else None),
+                info=(info if log_eval_info.info else None),
+                avail_actions=(avail_actions if log_eval_info.avail_actions else None),
             )
             runner_state = EvalState(
                 train_states=runner_state.train_states,
@@ -1102,14 +1101,25 @@ def main(config):
             return _tree_split(flat_trainstate, n_sequential_evals)
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states_actor)
         eval_env, run_eval = make_evaluation(config)
+        eval_log_config = EvalInfoLogConfig(
+            env_state=False,
+            done=True,
+            action=False,
+            value=False,
+            reward=True,
+            log_prob=False,
+            obs=False,
+            info=False,
+            avail_actions=False,
+        )
         eval_jit = jax.jit(
             run_eval,
-            static_argnames=["log_env_state"],
+            static_argnames=["log_eval_info"],
         )
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
  
         evals = _concat_tree([
-            eval_vmap(eval_rng, ts, False) # Changed to true for rendering but get OOM 
+            eval_vmap(eval_rng, ts, eval_log_config) # Changed to true for rendering but get OOM 
             for ts in tqdm(split_trainstate, desc="Evaluation batches")
         ])
         evals = jax.tree.map(
@@ -1135,32 +1145,32 @@ def main(config):
 
         # RENDER
         # Run episodes for render (saving env_state at each timestep)
-        eval_final = eval_jit(eval_rng, _tree_take(final_train_state_actor, 0, axis=0), True)
-        first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
-        first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
-        first_episode_returns = first_episode_rewards.sum(axis=0)
-        episode_argsort = jnp.argsort(first_episode_returns, axis=-1)
-        worst_idx = episode_argsort.take(0,axis=-1)
-        best_idx = episode_argsort.take(-1, axis=-1)
-        median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
+        # eval_final = eval_jit(eval_rng, _tree_take(final_train_state_actor, 0, axis=0), True)
+        # first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
+        # first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
+        # first_episode_returns = first_episode_rewards.sum(axis=0)
+        # episode_argsort = jnp.argsort(first_episode_returns, axis=-1)
+        # worst_idx = episode_argsort.take(0,axis=-1)
+        # best_idx = episode_argsort.take(-1, axis=-1)
+        # median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
 
-        from brax.io import html
-        worst_episode = _take_episode(
-            eval_final.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=worst_idx,
-        )
-        median_episode = _take_episode(
-            eval_final.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=median_idx,
-        )
-        best_episode = _take_episode(
-            eval_final.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=best_idx,
-        )
-        breakpoint() # maybe test eval_env.sys.geom_rgba 
-        html.save("final_worst.html", eval_env.sys, worst_episode)
-        html.save("final_median.html", eval_env.sys, median_episode)
-        html.save("final_best.html", eval_env.sys, best_episode)
+        # from brax.io import html
+        # worst_episode = _take_episode(
+        #     eval_final.env_state.env_state.pipeline_state, first_episode_done,
+        #     time_idx=-1, eval_idx=worst_idx,
+        # )
+        # median_episode = _take_episode(
+        #     eval_final.env_state.env_state.pipeline_state, first_episode_done,
+        #     time_idx=-1, eval_idx=median_idx,
+        # )
+        # best_episode = _take_episode(
+        #     eval_final.env_state.env_state.pipeline_state, first_episode_done,
+        #     time_idx=-1, eval_idx=best_idx,
+        # )
+        # breakpoint() # maybe test eval_env.sys.geom_rgba 
+        # html.save("final_worst.html", eval_env.sys, worst_episode)
+        # html.save("final_median.html", eval_env.sys, median_episode)
+        # html.save("final_best.html", eval_env.sys, best_episode)
 
 
 if __name__ == "__main__":
