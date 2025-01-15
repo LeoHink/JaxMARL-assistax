@@ -15,7 +15,7 @@ TOTAL_TIMESTEPS: 30e6
   #   tremor_magnitude: 0.0
 # NUM_STEPS: 256
 NUM_ENVS: 32
-NUM_SEEDS: 1
+NUM_SEEDS: 2
 SEED: 1
 NUM_EVAL_EPISODES: 64
 NUM_CHECKPOINTS: 128 # how often to save the training parameters for evaluating later
@@ -74,19 +74,19 @@ DISABLE_JIT: False
 DEVICE: 0
 
 # SWEEPER SETTINGS
-sweep:
-  num_configs: 4
+SWEEP:
+  num_configs: 5
   p_lr:
-    min: -4.0
-    max: -3.0
+    min: -5.0
+    max: -2.0
   q_lr:
-    min: -4.0
-    max: -3.0
+    min: -5.0
+    max: -2.0
   alpha_lr:
-    min: -4.0
-    max: -3.0
+    min: -5.0
+    max: -2.0
   tau: 
-    min: -3.0
+    min: -4.0
     max: -1.0 # really though 
 
 
@@ -107,4 +107,4 @@ hydra:
     dir: outputs/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:
     dir: multirun/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
-    subdir: r${ENV_KWARGS.disability.joint_restriction_factor}_s${ENV_KWARGS.disability.joint_strength}_t${ENV_KWARGS.disability.tremor_magnitude}_${SEED}
+    subdir: ""

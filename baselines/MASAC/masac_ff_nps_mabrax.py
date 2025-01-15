@@ -4,7 +4,7 @@ import os
 #     "--xla_gpu_triton_gemm_any=true "
 #     "--xla_dump_to=xla_dump "
 # )
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false" # TODO: get rid of these 
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
 import jax
 import jax.numpy as jnp
@@ -34,7 +34,7 @@ import flashbax as fbx
 import safetensors.flax
 from flax.traverse_util import flatten_dict
 import sys
-print(sys.executable)
+
 
 
 # Helper functions remain the same
@@ -234,14 +234,26 @@ class EvalInfo(NamedTuple):
 
 # TODO: add eval info log config to determine what to log for evaluation (improve the memroy efficienty)
 
-class TransitionNames(NamedTuple):
-    obs: str
-    obs_global: str
-    action: str
-    reward: str
-    done: str
-    next_obs: str
-    next_obs_global: str
+# class TransitionNames(NamedTuple):
+#     obs: str
+#     obs_global: str
+#     action: str
+#     reward: str
+#     done: str
+#     next_obs: str
+#     next_obs_global: str
+
+@struct.dataclass
+class EvalInfoLogConfig:
+    env_state: bool = True
+    done: bool = True
+    action: bool = True
+    value: bool = True
+    reward: bool = True
+    log_prob: bool = True
+    obs: bool = True
+    info: bool = True
+    avail_actions: bool = True
     
 def reshape_for_buffer(x, f):
     if f not in ["obs_global", "next_obs_global"]:
@@ -345,19 +357,21 @@ def make_train(config, save_train_state=True):
             log_alpha = jnp.broadcast_to(log_alpha, target_entropy.shape)
 
     
-        grad_clip = optax.clip_by_global_norm(config["MAX_GRAD_NORM"])
+        grad_clip = optax.clip_by_global_norm(config["MAX_GRAD_NORM"]) # Change if I want to sweep
 
-        actor_opt = optax.chain(grad_clip, optax.adam(config["POLICY_LR"]))
+        actor_opt = optax.chain(grad_clip, optax.adam(p_lr))
 
-        q1_opt = optax.chain(grad_clip, optax.adam(config["Q_LR"]))
+        q1_opt = optax.chain(grad_clip, optax.adam(q_lr))
         # Testing with 2 separate optimizers for each q function 
-        q2_opt = optax.chain(grad_clip, optax.adam(config["Q_LR"]))
+        q2_opt = optax.chain(grad_clip, optax.adam(q_lr))
         
-        alpha_opt = optax.chain(grad_clip, optax.adam(config["ALPHA_LR"]))
+        alpha_opt = optax.chain(grad_clip, optax.adam(alpha_lr))
         alpha_opt_state = alpha_opt.init(log_alpha)
 
         tanh_bijector = distrax.Block(distrax.Tanh(), ndims=1)
         
+        tau = tau
+
         actor_train_state = TrainState.create(
             apply_fn=actor.apply,
             params=actor_params,
@@ -676,12 +690,12 @@ def make_train(config, save_train_state=True):
                         new_q1_target = optax.incremental_update(
                             new_q1_train_state.params,
                             train_state.q1_target,
-                            config["TAU"],
+                            tau,
                         )
                         new_q2_target = optax.incremental_update(
                             new_q2_train_state.params,
                             train_state.q2_target,
-                            config["TAU"],
+                            tau,
                         )
 
                         q_update_train_state = SACTrainStates( # TODO: use ._replace method instead
@@ -1143,6 +1157,7 @@ def main(config):
             eval_final.env_state.env_state.pipeline_state, first_episode_done,
             time_idx=-1, eval_idx=best_idx,
         )
+        breakpoint() # maybe test eval_env.sys.geom_rgba 
         html.save("final_worst.html", eval_env.sys, worst_episode)
         html.save("final_median.html", eval_env.sys, median_episode)
         html.save("final_best.html", eval_env.sys, best_episode)
