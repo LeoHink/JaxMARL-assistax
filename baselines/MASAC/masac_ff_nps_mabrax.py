@@ -245,14 +245,14 @@ class EvalInfo(NamedTuple):
 
 @struct.dataclass
 class EvalInfoLogConfig:
-    env_state=True,
-    done=True,
-    action=True,
-    reward=True,
-    log_prob=True,
-    obs=True,
-    info=True,
-    avail_actions=True,
+    env_state: bool = True,
+    done: bool = True,
+    action: bool = True,
+    reward: bool = True,
+    log_prob: bool = True,
+    obs: bool = True,
+    info: bool = True,
+    avail_actions: bool = True,
     
 def reshape_for_buffer(x, f):
     if f not in ["obs_global", "next_obs_global"]:
@@ -1105,7 +1105,6 @@ def main(config):
             env_state=False,
             done=True,
             action=False,
-            value=False,
             reward=True,
             log_prob=False,
             obs=False,
