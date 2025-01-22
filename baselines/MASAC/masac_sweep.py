@@ -80,7 +80,7 @@ def _compute_episode_returns(eval_info, common_reward=False, time_axis=-2):
     return undiscounted_returns
 
 def _generate_sweep_axes(rng, config):
-    p_lr_rng, q_lr_rng, alpha_lr, tau_rng = jax.random.split(rng, 4)
+    p_lr_rng, q_lr_rng, alpha_lr_rng, tau_rng = jax.random.split(rng, 4)
     sweep_config = config["SWEEP"]
     if sweep_config.get("p_lr", False):
         p_lrs = 10**jax.random.uniform(
@@ -96,7 +96,7 @@ def _generate_sweep_axes(rng, config):
 
     if sweep_config.get("q_lr", False):
         q_lrs = 10**jax.random.uniform(
-            p_lr_rng,
+            q_lr_rng,
             shape=(sweep_config["num_configs"],),
             minval=sweep_config["q_lr"]["min"],
             maxval=sweep_config["q_lr"]["max"],
@@ -108,7 +108,7 @@ def _generate_sweep_axes(rng, config):
 
     if sweep_config.get("alpha_lr", False):
         alpha_lrs = 10**jax.random.uniform(
-            p_lr_rng,
+            alpha_lr_rng,
             shape=(sweep_config["num_configs"],),
             minval=sweep_config["alpha_lr"]["min"],
             maxval=sweep_config["alpha_lr"]["max"],
