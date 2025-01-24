@@ -2,46 +2,31 @@ defaults:
   - network: ff_nps
   - _self_
 
-ENV_NAME: scratchitch
+ENV_NAME: walker2d_2x3
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
-  backend: mjx
-  disability:
-    joint_idx: 13
-    joint_restriction_factor: 1.0
-    joint_strength: 1.0
-    tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 30e6
+  # backend: mjx
+  # disability:
+  #   joint_idx: 13
+  #   joint_restriction_factor: 1.0
+  #   joint_strength: 1.0
+  #   tremor_magnitude: 0.0
+TOTAL_TIMESTEPS: 3e6
 
 # NUM_STEPS: 256
 NUM_ENVS: 32
 NUM_SEEDS: 2
 SEED: 1
-NUM_EVAL_EPISODES: 64 # lower for rendering
+NUM_EVAL_EPISODES: 2 # lower for rendering
 NUM_CHECKPOINTS: 128 # how often to save the training parameters for evaluating later
 
-TEST_DURING_TRAINING: True
+TEST_DURING_TRAINING: True # not currently in use for SAC
 
 # RL HYPERPARAMETERS
-UPDATE_EPOCHS: 4
-NUM_MINIBATCHES: 4
-# ANNEAL_LR: False #  Not currently implemented
-LR: 3e-4
-ENT_COEF: 1e-4
-CLIP_EPS: 0.2
-SCALE_CLIP_EPS: False
-RATIO_CLIP_EPS: False
-# GAMMA: 0.99
-# GAE_LAMBDA: 0.95
-# VF_COEF: 1.0
-# MAX_GRAD_NORM: 0.5
-# ADAM_EPS: 1e-8
 EXPLORE_STEPS: 5000  # number of steps to take with random actions at the start of training
-# EPOCHS: 32 # number of learn epochs per training data batch.
-POLICY_UPDATE_DELAY: 4  #TODO: implement this
-# Every `policy_update_delay` q network learning steps the policy network is trained.
-# It is trained `policy_update_delay` times to compensate, this is a TD3 trick.
+POLICY_UPDATE_DELAY: 4  # Every `policy_update_delay` q network learning steps the policy network is trained.
+                        # It is trained `policy_update_delay` times to compensate, this is a TD3 trick.
 
 # sizes
 BUFFER_SIZE: 1000000  # size of the replay buffer. Note: total size is this * num_devices
@@ -52,7 +37,6 @@ POLICY_LR: 3e-4  # the learning rate of the policy network optimizer
 Q_LR: 1e-3  # the learning rate of the Q network network optimizer
 ALPHA_LR: 3e-4  # the learning rate of the alpha optimizer
 MAX_GRAD_NORM: 10
-# UPDATES_PER_STEP: 1
 
 # SAC specific
 TAU: 0.005  # smoothing coefficient for target networks
@@ -70,9 +54,10 @@ WANDB_RUN: test
 
 # COMPUTE OPTIONS
 GPU_ENV_CAPACITY: 8192
-# ADVANTAGE_UNROLL_DEPTH: 8
 DISABLE_JIT: False
 DEVICE: 0
+
+DETERMINISTIC_EVAL: True
 
 # SWEEPER SETTINGS
 SWEEP:
@@ -88,8 +73,7 @@ SWEEP:
     max: -2.0
   tau: 
     min: -4.0
-    max: -1.0 # really though 
-
+    max: -1.0 
 
 # CROSSPLAY SETTINGS
 crossplay:
@@ -98,8 +82,7 @@ crossplay:
     agent_1: /path/to/agent_1.safetensors
 
 eval: # path to actor all params for eval
-  path: /home/leo/assistax/JaxMARL/baselines/MASAC/outputs/mabrax/scratchitch/2024-12-08/16-26-22/actor_all_params.safetensors
-
+  path: /home/leo/assistax/JaxMARL/baselines/MASAC/outputs/mabrax/scratchitch/2025-01-16/11-52-11/actor_all_params.safetensors
 
 hydra:
   job:

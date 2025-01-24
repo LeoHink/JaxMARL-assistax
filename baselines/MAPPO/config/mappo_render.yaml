@@ -12,20 +12,20 @@ ENV_KWARGS:
     joint_restriction_factor: 1.0
     joint_strength: 1.0
     tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 30e6
-NUM_STEPS: 256
-NUM_ENVS: 256
-NUM_SEEDS: 6
+TOTAL_TIMESTEPS: 1e6
+NUM_STEPS: 128
+NUM_ENVS: 512
+NUM_SEEDS: 4
 SEED: 0
-NUM_EVAL_EPISODES: 32
+NUM_EVAL_EPISODES: 2
 
 # RL HYPERPARAMETERS
 UPDATE_EPOCHS: 4
 NUM_MINIBATCHES: 4
 ANNEAL_LR: False
-LR: 0.0010507666738703847
+LR: 2.5e-4
 ENT_COEF: 1e-4
-CLIP_EPS:  0.31391364336013794
+CLIP_EPS: 0.2
 SCALE_CLIP_EPS: False
 RATIO_CLIP_EPS: False
 GAMMA: 0.99
@@ -40,9 +40,10 @@ ADVANTAGE_UNROLL_DEPTH: 8
 DISABLE_JIT: False
 DEVICE: 0
 
-# EVAL TRAIN STATE
+# EVAL SETTINGS
 eval:
-  path: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/bedbathing/2025-01-23/16-18-59/all_params.safetensors
+  compute_value: false
+  path: /home/leo/assistax/JaxMARL/baselines/MAPPO/outputs/mabrax/scratchitch/2025-01-24/17-46-40/all_params.safetensors
 
 # SWEEPER SETTINGS
 sweep:
@@ -56,8 +57,8 @@ sweep:
 # CROSSPLAY SETTINGS
 crossplay:
   paths:
-    agent_0: /path/to/agent_0.safetensors
-    agent_1: /path/to/agent_1.safetensors
+    agent_0: /home/elliot/research/projects/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/walker2d_2x3/2024-10-02/01-06-13/agent_0.safetensors
+    agent_1: /home/elliot/research/projects/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/walker2d_2x3/2024-10-02/01-06-13/agent_1.safetensors
 
 hydra:
   job:

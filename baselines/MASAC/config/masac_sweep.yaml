@@ -2,23 +2,23 @@ defaults:
   - network: ff_nps
   - _self_
 
-ENV_NAME: walker2d_2x3
+ENV_NAME: bedbathing
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
-  # backend: mjx
-  # disability:
-  #   joint_idx: 13
-  #   joint_restriction_factor:   1.0
-  #   joint_strength: 1.0
-  #   tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 30e6
+  backend: mjx
+  disability:
+    joint_idx: 13
+    joint_restriction_factor: 1.0
+    joint_strength: 1.0
+    tremor_magnitude: 0.0
+TOTAL_TIMESTEPS: 1e6
 
 # NUM_STEPS: 256
 NUM_ENVS: 32
 NUM_SEEDS: 2
 SEED: 1
-NUM_EVAL_EPISODES: 64 # lower for rendering
+NUM_EVAL_EPISODES: 2 # lower for rendering
 NUM_CHECKPOINTS: 128 # how often to save the training parameters for evaluating later
 
 TEST_DURING_TRAINING: True # not currently in use for SAC
@@ -57,7 +57,7 @@ GPU_ENV_CAPACITY: 8192
 DISABLE_JIT: False
 DEVICE: 0
 
-DETERMINISTIC_EVAL: False
+DETERMINISTIC_EVAL: True
 
 # SWEEPER SETTINGS
 SWEEP:
@@ -92,4 +92,3 @@ hydra:
   sweep:
     dir: multirun/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ""
-

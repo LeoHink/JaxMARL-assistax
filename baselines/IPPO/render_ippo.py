@@ -100,9 +100,8 @@ def main(config):
             apply_fn=network.apply,
             params=final_train_state
         )
-        breakpoint()
+ 
         eval_final = eval_jit(eval_rng, _tree_take(final_eval_network_state, 0, axis=0), eval_log_config)
-        breakpoint()
         first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
         first_episode_returns = first_episode_rewards.sum(axis=0)
@@ -110,7 +109,7 @@ def main(config):
         worst_idx = episode_argsort.take(0,axis=-1)
         best_idx = episode_argsort.take(-1, axis=-1)
         median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
-        breakpoint()
+
         from brax.io import html
         worst_episode = _take_episode(
             eval_final.env_state.env_state.pipeline_state, first_episode_done,

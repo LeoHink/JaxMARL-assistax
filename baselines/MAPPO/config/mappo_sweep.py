@@ -16,6 +16,8 @@ from jaxmarl.wrappers.baselines import LogWrapper
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict
+from base64 import urlsafe_b64encode
+
 
 
 def _tree_take(pytree, indices, axis=None):
@@ -61,7 +63,7 @@ def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
         if not (done)
     ]
 
-def _compute_episode_returns(eval_info, time_axis=-2):
+def _compute_episode_returns(eval_info, common_reward=False, time_axis=-2):
     done_arr = eval_info.done["__all__"]
     first_timestep = [slice(None) for _ in range(done_arr.ndim)]
     first_timestep[time_axis] = 0
@@ -72,48 +74,129 @@ def _compute_episode_returns(eval_info, time_axis=-2):
         lambda r: (r*(1-episode_done)).sum(axis=time_axis),
         eval_info.reward
     )
+    if "__all__" not in undiscounted_returns:
+        undiscounted_returns.update({
+            "__all__": (sum(undiscounted_returns.values())
+                        /(len(undiscounted_returns) if common_reward else 1))
+        })
     return undiscounted_returns
 
+def _generate_sweep_axes(rng, config):
+    lr_rng, ent_coef_rng, clip_eps_rng = jax.random.split(rng, 3)
+    sweep_config = config["SWEEP"]
+    if sweep_config.get("lr", False):
+        lrs = 10**jax.random.uniform(
+            lr_rng,
+            shape=(sweep_config["num_configs"],),
+            minval=sweep_config["lr"]["min"],
+            maxval=sweep_config["lr"]["max"],
+        )
+        lr_axis = 0
+    else:
+        lrs = config["LR"]
+        lr_axis = None
+
+    if sweep_config.get("ent_coef", False):
+        ent_coefs = 10**jax.random.uniform(
+            ent_coef_rng,
+            shape=(sweep_config["num_configs"],),
+            minval=sweep_config["ent_coef"]["min"],
+            maxval=sweep_config["ent_coef"]["max"],
+        )
+        ent_coef_axis = 0
+    else:
+        ent_coefs = config["ENT_COEF"]
+        ent_coef_axis = None
+
+    if sweep_config.get("clip_eps", False):
+        clip_epss = 10**jax.random.uniform(
+            clip_eps_rng,
+            shape=(sweep_config["num_configs"],),
+            minval=sweep_config["clip_eps"]["min"],
+            maxval=sweep_config["clip_eps"]["max"],
+        )
+        clip_eps_axis = 0
+    else:
+        clip_epss = config["CLIP_EPS"]
+        clip_eps_axis = None
+
+    return {
+        "lr": {"val": lrs, "axis": lr_axis},
+        "ent_coef": {"val": ent_coefs, "axis":ent_coef_axis},
+        "clip_eps": {"val": clip_epss, "axis":clip_eps_axis},
+    }
 
 
-@hydra.main(version_base=None, config_path="config", config_name="ippo_mabrax")
+@hydra.main(version_base=None, config_path="config", config_name="mappo_sweep")
 def main(config):
+    config_key = hash(config) % 2**62
+    config_key = urlsafe_b64encode(
+        config_key.to_bytes(
+            (config_key.bit_length()+8)//8,
+            "big", signed=False
+        )
+    ).decode("utf-8").replace("=", "")
+    os.makedirs(config_key, exist_ok=True)
     config = OmegaConf.to_container(config, resolve=True)
 
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
         case (False, False):
-            from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (False, True):
-            from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (True, False):
-            from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (True, True):
-            from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
     rng = jax.random.PRNGKey(config["SEED"])
-    train_rng, eval_rng = jax.random.split(rng)
+    train_rng, eval_rng, sweep_rng = jax.random.split(rng, 3)
     train_rngs = jax.random.split(train_rng, config["NUM_SEEDS"])    
-    print(f"Starting training with {config['TOTAL_TIMESTEPS']} timesteps \n num envs: {config['NUM_ENVS']} \n num seeds: {config['NUM_SEEDS']} \n for env: {config['ENV_NAME']}")
+    sweep = _generate_sweep_axes(sweep_rng, config)
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(
             make_train(config, save_train_state=True),
             device=jax.devices()[config["DEVICE"]]
         )
-        # first run (includes JIT)
-        out = jax.vmap(train_jit, in_axes=(0, None, None, None))(
+        out = jax.vmap(
+            jax.vmap(
+                train_jit,
+                in_axes=(0, None, None, None)
+            ),
+            in_axes=(
+                None,
+                sweep["lr"]["axis"],
+                sweep["ent_coef"]["axis"],
+                sweep["clip_eps"]["axis"],
+            )
+        )(
             train_rngs,
-            config["LR"], config["ENT_COEF"], config["CLIP_EPS"]
+            sweep["lr"]["val"],
+            sweep["ent_coef"]["val"],
+            sweep["clip_eps"]["val"],
         )
 
         # SAVE TRAIN METRICS
         EXCLUDED_METRICS = ["train_state"]
-        jnp.save("metrics.npy", {
+        jnp.save(f"{config_key}/metrics.npy", {
             key: val
             for key, val in out["metrics"].items()
             if key not in EXCLUDED_METRICS
             },
             allow_pickle=True
+        )
+        
+        # SAVE SWEEP HPARAMS
+        jnp.save(f"{config_key}/hparams.npy", {
+            "lr": sweep["lr"]["val"],
+            "ent_coef": sweep["ent_coef"]["val"],
+            "clip_eps": sweep["clip_eps"]["val"],
+            "num_steps": config["NUM_STEPS"],
+            "num_envs": config["NUM_ENVS"],
+            "update_epochs": config["UPDATE_EPOCHS"],
+            "num_minibatches": config["NUM_MINIBATCHES"],
+            }
         )
 
         # SAVE PARAMS
@@ -121,40 +204,41 @@ def main(config):
         all_train_states = out["metrics"]["train_state"]
         final_train_state = out["runner_state"].train_state
         safetensors.flax.save_file(
-            flatten_dict(all_train_states.params, sep='/'),
-            "all_params.safetensors"
+            flatten_dict(all_train_states.actor.params, sep='/'),
+            f"{config_key}/all_params.safetensors"
         )
         if config["network"]["agent_param_sharing"]:
             safetensors.flax.save_file(
-                flatten_dict(final_train_state.params, sep='/'),
-                "final_params.safetensors"
+                flatten_dict(final_train_state.actor.params, sep='/'),
+                f"{config_key}/final_params.safetensors"
             )
         else:
             # split by agent
             split_params = _unstack_tree(
-                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state.params)
+                jax.tree.map(lambda x: jnp.moveaxis(x, 2, 0), final_train_state.actor.params)
             )
             for agent, params in zip(env.agents, split_params):
                 safetensors.flax.save_file(
                     flatten_dict(params, sep='/'),
-                    f"{agent}.safetensors",
+                    f"{config_key}/{agent}.safetensors",
                 )
 
         # RUN EVALUATION
-        # Assume the first 2 dimensions are batch dims
-        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:2]
+        # Assume the first 3 dimensions are batch dims
+        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.actor.params))[:3]
         n_sequential_evals = int(jnp.ceil(
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
             / config["GPU_ENV_CAPACITY"]
         ))
-        def _flatten_and_split_trainstate(trainstate):
+        def _flatten_and_split_trainstate(train_state):
             # We define this operation and JIT it for memory reasons
             flat_trainstate = jax.tree.map(
-                lambda x: x.reshape((x.shape[0]*x.shape[1],*x.shape[2:])),
-                trainstate
+                lambda x: x.reshape((x.shape[0]*x.shape[1]*x.shape[2],*x.shape[3:])),
+                train_state
             )
             return _tree_split(flat_trainstate, n_sequential_evals)
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
+
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(
             env_state=False,
@@ -183,50 +267,10 @@ def main(config):
 
         # COMPUTE RETURNS
         first_episode_returns = _compute_episode_returns(evals)
-        first_episode_returns = first_episode_returns["__all__"]
-        mean_episode_returns = first_episode_returns.mean(axis=-1)
+        mean_episode_returns = first_episode_returns["__all__"].mean(axis=-1)
 
         # SAVE RETURNS
-        jnp.save("returns.npy", mean_episode_returns)
-
-        # RENDER
-        # Run episodes for render (saving env_state at each timestep)
-        render_log_config = EvalInfoLogConfig(
-            env_state=True,
-            done=True,
-            action=False,
-            value=False,
-            reward=True,
-            log_prob=False,
-            obs=False,
-            info=False,
-            avail_actions=False,
-        )
-        eval_final = eval_jit(eval_rng, _tree_take(final_train_state, 0, axis=0), render_log_config)
-        first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
-        first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
-        first_episode_returns = first_episode_rewards.sum(axis=0)
-        episode_argsort = jnp.argsort(first_episode_returns, axis=-1)
-        worst_idx = episode_argsort.take(0,axis=-1)
-        best_idx = episode_argsort.take(-1, axis=-1)
-        median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
-
-        from brax.io import html
-        worst_episode = _take_episode(
-            eval_final.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=worst_idx,
-        )
-        median_episode = _take_episode(
-            eval_final.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=median_idx,
-        )
-        best_episode = _take_episode(
-            eval_final.env_state.env_state.pipeline_state, first_episode_done,
-            time_idx=-1, eval_idx=best_idx,
-        )
-        html.save("final_worst.html", eval_env.sys, worst_episode)
-        html.save("final_median.html", eval_env.sys, median_episode)
-        html.save("final_best.html", eval_env.sys, best_episode)
+        jnp.save(f"{config_key}/returns.npy", mean_episode_returns)
 
 
 if __name__ == "__main__":

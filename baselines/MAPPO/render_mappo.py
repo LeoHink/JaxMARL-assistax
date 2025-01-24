@@ -4,7 +4,7 @@ import os
 #     "--xla_gpu_triton_gemm_any=true "
 #     "--xla_dump_to=xla_dump "
 # )
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
 import time
 from tqdm import tqdm
@@ -49,29 +49,26 @@ def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
     ]
 
 
-@hydra.main(version_base=None, config_path="config", config_name="masac_mabrax")
+@hydra.main(version_base=None, config_path="config", config_name="ippo_mabrax")
 def main(config):
     config = OmegaConf.to_container(config, resolve=True)
 
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
-    # match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
-    #     case (False, False):
-    #         from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    #         from ippo_ff_nps_mabrax import MultiActorCritic as NetworkArch
-    #     case (False, True):
-    #         from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    #         from ippo_ff_ps_mabrax import ActorCritic as NetworkArch
-    #     case (True, False):
-    #         from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    #         from ippo_rnn_nps_mabrax import MultiActorCriticRNN as NetworkArch
-    #     case (True, True):
-    #         from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    #         from ippo_rnn_ps_mabrax import ActorCriticRNN as NetworkArch
-    #     case _:
-    #         raise Exception
-
-    from masac_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    from masac_ff_nps_mabrax import MultiSACActor as NetworkArch
+    match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
+        case (False, False):
+            from mappo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_ff_nps_mabrax import MultiActor as NetworkArch
+        case (False, True):
+            from mappo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_ff_ps_mabrax import Actor as NetworkArch
+        case (True, False):
+            from mappo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_rnn_nps_mabrax import MultiActorRNN as NetworkArch
+        case (True, True):
+            from mappo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_rnn_ps_mabrax import ActorRNN as NetworkArch
+        case _:
+            raise Exception
 
     rng = jax.random.PRNGKey(config["SEED"])
     rng, eval_rng = jax.random.split(rng)
@@ -84,6 +81,7 @@ def main(config):
             env_state=True,
             done=True,
             action=False,
+            value=False,
             reward=True,
             log_prob=False,
             obs=False,
@@ -102,9 +100,8 @@ def main(config):
             apply_fn=network.apply,
             params=final_train_state
         )
-
+ 
         eval_final = eval_jit(eval_rng, _tree_take(final_eval_network_state, 0, axis=0), eval_log_config)
-
         first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
         first_episode_returns = first_episode_rewards.sum(axis=0)
@@ -112,6 +109,7 @@ def main(config):
         worst_idx = episode_argsort.take(0,axis=-1)
         best_idx = episode_argsort.take(-1, axis=-1)
         median_idx = episode_argsort.take(episode_argsort.shape[-1]//2, axis=-1)
+
         from brax.io import html
         worst_episode = _take_episode(
             eval_final.env_state.env_state.pipeline_state, first_episode_done,
