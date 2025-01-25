@@ -191,7 +191,7 @@ def main(config):
             sweep["alpha_lr"]["val"],
             sweep["tau"]["val"]
         )
-        breakpoint()
+
         # SAVE TRAIN METRICS
         EXCLUDED_METRICS = ["actor_train_state", "q1_train_state", "q2_train_state"]
         saveable_metrics = {key: val.copy() for key, val in out["metrics"].items() if key not in EXCLUDED_METRICS}
@@ -224,7 +224,7 @@ def main(config):
         # SAVE PARAMS
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
         all_train_states = out["metrics"]["actor_train_state"]
-        breakpoint()
+
         final_train_state = out["runner_state"].train_states.actor
         safetensors.flax.save_file(
             flatten_dict(all_train_states.params, sep='/'),
