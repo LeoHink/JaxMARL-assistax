@@ -922,7 +922,7 @@ def main(config):
         # first run (includes JIT)
         out = jax.vmap(train_jit, in_axes=(0, None, None, None, None))(
             train_rngs,
-            config["POLICY_LR"], config["Q_LR"], config["ALPHA_LR"], config["TAU"] # TODO: Change these for SAC sweep
+            config["POLICY_LR"], config["Q_LR"], config["ALPHA_LR"], config["TAU"] 
         )
 
         # SAVE TRAIN METRICS

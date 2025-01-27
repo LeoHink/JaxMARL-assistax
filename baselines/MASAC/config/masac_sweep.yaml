@@ -2,7 +2,7 @@ defaults:
   - network: ff_nps
   - _self_
 
-ENV_NAME: bedbathing
+ENV_NAME: scratchitch
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
@@ -12,13 +12,13 @@ ENV_KWARGS:
     joint_restriction_factor: 1.0
     joint_strength: 1.0
     tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 1e6
+TOTAL_TIMESTEPS: 30e6
 
 # NUM_STEPS: 256
-NUM_ENVS: 32
+NUM_ENVS: 256
 NUM_SEEDS: 2
 SEED: 1
-NUM_EVAL_EPISODES: 2 # lower for rendering
+NUM_EVAL_EPISODES: 32 # lower for rendering
 NUM_CHECKPOINTS: 128 # how often to save the training parameters for evaluating later
 
 TEST_DURING_TRAINING: True # not currently in use for SAC
@@ -61,19 +61,19 @@ DETERMINISTIC_EVAL: True
 
 # SWEEPER SETTINGS
 SWEEP:
-  num_configs: 5
+  num_configs: 3
   p_lr:
     min: -5.0
     max: -2.0
   q_lr:
     min: -5.0
     max: -2.0
-  alpha_lr:
-    min: -5.0
-    max: -2.0
-  tau: 
-    min: -4.0
-    max: -1.0 
+  alpha_lr: false
+    # min: -5.0
+    # max: -2.0
+  tau: false
+    # min: -4.0
+    # max: -1.0 
 
 # CROSSPLAY SETTINGS
 crossplay:

@@ -9,16 +9,16 @@ ENV_KWARGS:
   # backend: mjx
   # disability:
   #   joint_idx: 13
-  #   joint_restriction_factor: 1.0
+  #   joint_restriction_factor:   1.0
   #   joint_strength: 1.0
   #   tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 3e6
+TOTAL_TIMESTEPS: 30e6
 
 # NUM_STEPS: 256
 NUM_ENVS: 32
-NUM_SEEDS: 4
+NUM_SEEDS: 2
 SEED: 1
-NUM_EVAL_EPISODES: 32 # lower for rendering
+NUM_EVAL_EPISODES: 64 # lower for rendering
 NUM_CHECKPOINTS: 128 # how often to save the training parameters for evaluating later
 
 TEST_DURING_TRAINING: True # not currently in use for SAC
@@ -57,7 +57,7 @@ GPU_ENV_CAPACITY: 8192
 DISABLE_JIT: False
 DEVICE: 0
 
-DETERMINISTIC_EVAL: True
+DETERMINISTIC_EVAL: False
 
 # SWEEPER SETTINGS
 SWEEP:
@@ -92,3 +92,4 @@ hydra:
   sweep:
     dir: multirun/mabrax/${ENV_NAME}/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ""
+

@@ -127,7 +127,7 @@ def _generate_sweep_axes(rng, config):
         )
         tau_axis = 0
     else:
-        taus = config["TAU"]
+        taus = config["ENT_COEF"]
         tau_axis = None
 
 
@@ -138,7 +138,7 @@ def _generate_sweep_axes(rng, config):
         "tau": {"val": taus, "axis":tau_axis},
     }
 
-@hydra.main(version_base=None, config_path="config", config_name="masac_sweep")
+@hydra.main(version_base=None, config_path="config", config_name="isac_sweep")
 def main(config):
     config_key = hash(config) % 2**62
     config_key = urlsafe_b64encode(
@@ -161,7 +161,7 @@ def main(config):
     #     case (True, True):
     #         from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
-    from masac_ff_nps_mabrax import make_train, make_evaluation
+    from isac_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
     rng = jax.random.PRNGKey(config["SEED"])
     train_rng, eval_rng, sweep_rng = jax.random.split(rng, 3)
