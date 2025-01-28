@@ -249,7 +249,7 @@ class ZooManager:
     def _save_safetensors(self, agent_uuid, param_dict):
         safetensors.flax.save_file(
             flatten_dict(param_dict, sep='/'),
-            osp.join(self.zoo_path, "paramas", agent_uuid+".safetensors")
+            osp.join(self.zoo_path, "params", agent_uuid+".safetensors")
         )
 
     def _load_config(self, agent_uuid: str) -> Dict:
