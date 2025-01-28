@@ -264,6 +264,9 @@ class ZooManager:
             config["OBS_DIM"] = config["OBS_DIM"].item()
         if hasattr(config["ACT_DIM"], "item"):
             config["ACT_DIM"] = config["ACT_DIM"].item()
+        if ("GOBS_DIM" in config) and hasattr(config["GOBS_DIM"], "item"):
+            config["GOBS_DIM"] = config["GOBS_DIM"].item()
+
         OmegaConf.save(
             config,
             osp.join(self.zoo_path, "config", agent_uuid+".yaml")
