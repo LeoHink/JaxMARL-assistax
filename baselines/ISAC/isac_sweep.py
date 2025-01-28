@@ -127,7 +127,7 @@ def _generate_sweep_axes(rng, config):
         )
         tau_axis = 0
     else:
-        taus = config["ENT_COEF"]
+        taus = config["TAU"]
         tau_axis = None
 
 
@@ -226,7 +226,7 @@ def main(config):
         all_train_states = out["metrics"]["actor_train_state"]
 
         final_train_state = out["runner_state"].train_states.actor
-        safetensors.flax.save_file(
+        safetensors.flax.save_file( # could get rid of this to only save final params
             flatten_dict(all_train_states.params, sep='/'),
             f"{config_key}/all_params.safetensors"
         )
@@ -263,24 +263,23 @@ def main(config):
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
 
         eval_env, run_eval = make_evaluation(config)
-        # eval_log_config = EvalInfoLogConfig(
-        #     env_state=False,
-        #     done=True,
-        #     action=False,
-        #     value=False,
-        #     reward=True,
-        #     log_prob=False,
-        #     obs=False,
-        #     info=False,
-        #     avail_actions=False,
-        # )
+        eval_log_config = EvalInfoLogConfig(
+            env_state=False,
+            done=True,
+            action=False,
+            reward=True,
+            log_prob=False,
+            obs=False,
+            info=False,
+            avail_actions=False,
+        )
         eval_jit = jax.jit(
             run_eval,
-            static_argnames=["log_env_state"], # do the eval_state eventually
+            static_argnames=["log_eval_info"], # do the eval_state eventually
         )
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
         evals = _concat_tree([
-            eval_vmap(eval_rng, ts, False)
+            eval_vmap(eval_rng, ts, eval_log_config)
             for ts in tqdm(split_trainstate, desc="Evaluation batches")
         ])
         evals = jax.tree.map(

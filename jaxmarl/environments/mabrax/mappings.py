@@ -126,9 +126,9 @@ ranges: Dict[str, Dict[str, List[Union[int, Tuple[int, int]]]]] = {
         "global": [(0,60)],
     },
     "armmanipulation": {
-        "robot": [(0,24)],
-        "human": [(25,60)],
-        "global": [(0,60)],
+        "robot": [(0,28)],
+        "human": [(28,67)],
+        "global": [(0,67)],
     },
 }
 

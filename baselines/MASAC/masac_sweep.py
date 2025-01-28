@@ -161,7 +161,7 @@ def main(config):
     #     case (True, True):
     #         from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
-    from masac_ff_nps_mabrax import make_train, make_evaluation
+    from masac_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
     rng = jax.random.PRNGKey(config["SEED"])
     train_rng, eval_rng, sweep_rng = jax.random.split(rng, 3)
@@ -263,20 +263,20 @@ def main(config):
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
 
         eval_env, run_eval = make_evaluation(config)
-        # eval_log_config = EvalInfoLogConfig(
-        #     env_state=False,
-        #     done=True,
-        #     action=False,
-        #     value=False,
-        #     reward=True,
-        #     log_prob=False,
-        #     obs=False,
-        #     info=False,
-        #     avail_actions=False,
-        # )
+        eval_log_config = EvalInfoLogConfig(
+            env_state=False,
+            done=True,
+            action=False,
+            value=False,
+            reward=True,
+            log_prob=False,
+            obs=False,
+            info=False,
+            avail_actions=False,
+        )
         eval_jit = jax.jit(
             run_eval,
-            static_argnames=["log_env_state"], # do the eval_state eventually
+            static_argnames=["log_eval_info"], # do the eval_state eventually
         )
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
         evals = _concat_tree([

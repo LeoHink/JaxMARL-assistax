@@ -6,13 +6,13 @@ ENV_NAME: scratchitch
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
-  # backend: mjx
+  backend: mjx
   # disability:
   #   joint_idx: 13
   #   joint_restriction_factor:   1.0
   #   joint_strength: 1.0
   #   tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 30e6
+TOTAL_TIMESTEPS: 1e6
 
 # NUM_STEPS: 256
 NUM_ENVS: 32
@@ -41,7 +41,7 @@ MAX_GRAD_NORM: 10
 # SAC specific
 TAU: 0.005  # smoothing coefficient for target networks
 GAMMA: 0.99  # discount factor
-NUM_SAC_UPDATES: 32 # Epochs over data
+NUM_SAC_UPDATES: 2 # Epochs over data
 ROLLOUT_LENGTH: 8 # number of environment steps per vectorised environment.
 
 AUTOTUNE: True  # whether to autotune alpha
@@ -68,12 +68,12 @@ SWEEP:
   q_lr:
     min: -5.0
     max: -2.0
-  alpha_lr:
-    min: -5.0
-    max: -2.0
-  tau: 
-    min: -4.0
-    max: -1.0 
+  alpha_lr: false
+    # min: -5.0
+    # max: -2.0
+  tau: false
+    # min: -4.0
+    # max: -1.0 
 
 # CROSSPLAY SETTINGS
 crossplay:
