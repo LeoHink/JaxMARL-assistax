@@ -1,4 +1,6 @@
+import os
 import os.path as osp
+import uuid
 import pandas as pd
 import jax
 import jax.numpy as jnp
@@ -27,6 +29,11 @@ def _stack_tree(pytree_list, axis=0):
         *pytree_list
     )
 
+@struct.dataclass
+class ActorCriticOutput:
+    pi: Optional[chex.Array | Tuple[chex.Array,chex.Array]] = None
+    V: Optional[chex.Array] = None
+    hstate: Optional[chex.Array] = None
 
 # Define Network architectures.
 # TODO would be nice to import these instead of copying them here.
@@ -62,7 +69,7 @@ class IPPOActorCritic(nn.Module):
     config: Dict
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, hstate, x):
         if self.config["network"]["activation"] == "relu":
             activation = nn.relu
         else:
@@ -112,7 +119,11 @@ class IPPOActorCritic(nn.Module):
             bias_init=constant(0.0)
         )(critic)
 
-        return pi, jnp.squeeze(critic, axis=-1)
+        ActorCriticOutput(
+            pi=pi,
+            V=jnp.squeeze(critic, axis=-1),
+            hstate=None,
+        )
 
 
 class IPPOActorCriticRNN(nn.Module):
@@ -167,7 +178,11 @@ class IPPOActorCriticRNN(nn.Module):
             bias_init=constant(0.0)
         )(critic)
 
-        return hstate, pi, jnp.squeeze(critic, axis=-1)
+        ActorCriticOutput(
+            pi=pi,
+            V=jnp.squeeze(critic, axis=-1),
+            hstate=hstate,
+        )
 
 
 @struct.dataclass
@@ -202,7 +217,18 @@ class ZooManager:
 
     def __init__(self, zoo_path: str):
         self.zoo_path = zoo_path
-        self.index = pd.read_csv(osp.join(zoo_path, "index.csv"))
+        self.index_path = osp.join(zoo_path, "index.csv")
+        self.index_cols = [
+            "agent_uuid",
+            "scenario",
+            "scenario_agent_id",
+            "algorithm",
+            "is_rnn",
+            "rnn_dim",
+        ]
+
+        self._init_zoo(zoo_path)
+        self.index = pd.read_csv(self.index_path)
 
     def load_agent(self, agent_uuid: str) -> ZooState:
         """Load an agent from the zoo given an agent UUID."""
@@ -220,12 +246,25 @@ class ZooManager:
             sep='/'
         )
 
+    def _save_safetensors(self, agent_uuid, param_dict):
+        safetensors.flax.save_file(
+            flatten_dict(param_dict, sep='/'),
+            osp.join(self.zoo_path, "config", agent_uuid+".safetensors")
+        )
+
     def _load_config(self, agent_uuid: str) -> Dict:
         config_path = osp.join(self.zoo_path, "config", agent_uuid+".yaml")
         return OmegaConf.to_container(
             OmegaConf.load(config_path),
             resolve=True
         )
+
+    def _save_config(self, agent_uuid: str, config):
+        OmegaConf.save(
+            config,
+            osp.join(self.zoo_path, "config", agent_uuid+".yaml")
+        )
+
 
     def _load_architecture(self, agent_uuid: str) -> Tuple[Callable, Callable]:
         agent_config = self._load_config(agent_uuid)
@@ -246,7 +285,34 @@ class ZooManager:
             hstate_reset_fn = _no_rnn_hstate_reset_fn
         return apply_fn, hstate_reset_fn
 
-    # TODO add save_agent (and _write_index)
+    def _init_zoo(self, zoo_path):
+        """Initialises the zoo directory."""
+        os.makedirs(zoo_path, exist_ok=True)
+        os.makedirs(osp.join(zoo_path, "config"), exist_ok=True)
+        os.makedirs(osp.join(zoo_path, "params"), exist_ok=True)
+        if not osp.exists(self.index_path):
+            with open(self.index_path, "w", encoding="utf-8") as f:
+                f.write(','.join(self.index_cols) + '\n')
+
+    def _write_index(self, index_dict):
+        """Writes the details of the current agent to the index file."""
+        with open(self.index_path, "a", encoding="utf-8") as f:
+            f.write(','.join(str(index_dict[col]) for col in self.index_cols) + '\n')
+
+    def save_agent(self, config, param_dict, scenario_agent_id):
+        """Saves the current agent to the zoo."""
+        agent_uuid = str(uuid.uuid4())
+        # save params
+        self._save_safetensors(agent_uuid, param_dict)
+        self._save_config(agent_uuid, config)
+        self._write_index({
+            "agent_uuid": agent_uuid,
+            "scenario": config["ENV_NAME"],
+            "scenario_agent_id": scenario_agent_id,
+            "algorithm": config["ALGORITHM"],
+            "is_rnn": config["network"]["recurrent"],
+            "rnn_dim": config["network"].get("gru_hidden_dim", 0),
+        })
 
 
 class LoadAgentWrapper(JaxMARLWrapper):
@@ -277,7 +343,7 @@ class LoadAgentWrapper(JaxMARLWrapper):
             if isinstance(agent_uuids, str):
                 zoo_state = zoo.load_agent(agent_uuids)
                 load_agents[agent] = LoadNetworkState(
-                    apply_fn=jax.vmap(zoo_state.apply_fn, in_axes=(0,None)),
+                    apply_fn=jax.vmap(zoo_state.apply_fn, in_axes=(0,None,None)),
                     hstate_reset_fn=zoo_state.hstate_reset_fn,
                     params=jax.tree.map(lambda x: jnp.expand_dims(x, 0), zoo_state.params),
                     pop_size=1,
@@ -286,7 +352,7 @@ class LoadAgentWrapper(JaxMARLWrapper):
                 zoo_states = [zoo.load_agent(agent_uuid) for agent_uuid in agent_uuids]
                 # TODO Assumes that all agents have the same architecture
                 load_agents[agent] = LoadNetworkState(
-                    apply_fn=jax.vmap(zoo_states[0].apply_fn, in_axes=(0,None)),
+                    apply_fn=jax.vmap(zoo_states[0].apply_fn, in_axes=(0,None,None)),
                     hstate_reset_fn=zoo_states[0].hstate_reset_fn,
                     params=_stack_tree([zoo_state.params for zoo_state in zoo_states]),
                     pop_size=len(zoo_states),
@@ -299,7 +365,7 @@ class LoadAgentWrapper(JaxMARLWrapper):
         obs: Dict[str, chex.Array],
         dones: Dict[str, bool],
         avail_actions: Dict[str, chex.Array],
-        hstate: Optional[Dict[str, chex.Array]]=None
+        hstate: Dict[str, chex.Array],
     ) -> Tuple[Dict[str, chex.Array], Dict[str, chex.Array]]:
         """Compute the action taken by each of the loaded agents and the new RNN hidden state.
 
@@ -307,24 +373,18 @@ class LoadAgentWrapper(JaxMARLWrapper):
         So the tree shape has form {agent_id: (pop_size, act_size)}.
         """
         internal_action = {}
+        n_hstate = {}
         for agent, train_state in self.loaded_params.items():
             key, _key = jax.random.split(key)
-            # TODO I think it would be better to make the networks return structs with fields for
-            # e.g. pi, v, hstate instead of returning as a tuple. This would mean that we could have
-            # a clear unified interface which we could possibly adapt to other architectures too.
             network_out = train_state.apply_fn(
                 train_state.params,
+                hstate[agent],
                 (obs[agent], dones[agent], avail_actions[agent])
             )
-            pi = network_out[-2]
-            pi = distrax.MultivariateNormalDiag(*pi)
+            pi = distrax.MultivariateNormalDiag(*network_out.pi)
             action = pi.sample(seed=_key)
             internal_action[agent] = action
-            if len(network_out) == 3:
-                hstate = network_out[0]
-            else:
-                hstate = None
-        return internal_action, hstate
+        return internal_action, n_hstate
 
     def reset_internal_hstates(self, key: chex.PRNGKey) -> Dict[str, chex.Array]:
         """Reset the hstate for each of the loaded agents."""
