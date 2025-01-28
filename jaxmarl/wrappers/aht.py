@@ -260,8 +260,10 @@ class ZooManager:
         )
 
     def _save_config(self, agent_uuid: str, config):
-        config["OBS_DIM"] = config["OBS_DIM"].item()
-        config["ACT_DIM"] = config["ACT_DIM"].item()
+        if hasattr(config["OBS_DIM"], "item"):
+            config["OBS_DIM"] = config["OBS_DIM"].item()
+        if hasattr(config["ACT_DIM"], "item"):
+            config["ACT_DIM"] = config["ACT_DIM"].item()
         OmegaConf.save(
             config,
             osp.join(self.zoo_path, "config", agent_uuid+".yaml")
