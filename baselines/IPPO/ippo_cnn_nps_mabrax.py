@@ -21,8 +21,8 @@ import functools
 
 class CNNEncoder(nn.Module):
     """CNN Encoder with 4 conv layers, flatten, linear projection, and layer normalization"""
-    hidden_dim: int  # Final projection dimension
-    activation_type: str  # Type of activation function to use
+    hidden_dim: int  
+    activation_type: str  
     
     def setup(self):
         if self.activation_type == "relu":

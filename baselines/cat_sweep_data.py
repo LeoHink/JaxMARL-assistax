@@ -52,23 +52,19 @@ for dirpath in args.load_dirs:
         metrics = jnp.load(
             os.path.join(dirpath, key_dir, f"metrics.npy"), allow_pickle=True
         ).item()
-        n_configs = metrics["log_probs"].shape[0]
+        n_configs = metrics["returned_episode_returns"].shape[0]
         for hparam_key in hparams:
             all_hparams[hparam_key].append(
                 hparams[hparam_key]
                 if isinstance(hparams[hparam_key], jnp.ndarray)
                 else jnp.full(n_configs, hparams[hparam_key])
             )
-        # for metric_key in args.save_metrics:
-        #     all_metrics[metric_key].append(metrics[metric_key])
-        
+        for metric_key in args.save_metrics:
+            all_metrics[metric_key].append(metrics[metric_key])
         all_returns.append(returns)
 
-breakpoint()
-# all_hparams = {key: np.concatenate(val) for key, val in all_hparams.items()}
-all_hparams = {key: np.concatenate([v if len(np.shape(v)) >= 1 else np.array([v]) for v in val]) 
-               for key, val in all_hparams.items()}
-# all_metrics = {key: np.concatenate(val) for key, val in all_metrics.items()}
+all_hparams = {key: np.concatenate(val) for key, val in all_hparams.items()}
+all_metrics = {key: np.concatenate(val) for key, val in all_metrics.items()}
 all_returns = jnp.concat(all_returns)
 
 output_dir = args.output_dir
@@ -76,6 +72,6 @@ os.makedirs(osp.join(output_dir, "hparam"), exist_ok=True)
 os.makedirs(osp.join(output_dir, "metric"), exist_ok=True)
 for key, hparam in all_hparams.items():
     np.save(osp.join(output_dir, "hparam", f"{key}.npy"), hparam)
-# for key, metric in all_metrics.items():
-#     np.save(osp.join(output_dir, "metric", f"{key}.npy"), metric)
+for key, metric in all_metrics.items():
+    np.save(osp.join(output_dir, "metric", f"{key}.npy"), metric)
 np.save(osp.join(output_dir, "metric", f"eval_returns.npy"), all_returns)

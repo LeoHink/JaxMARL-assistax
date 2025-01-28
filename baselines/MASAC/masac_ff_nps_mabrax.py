@@ -4,7 +4,7 @@ import os
 #     "--xla_gpu_triton_gemm_any=true "
 #     "--xla_dump_to=xla_dump "
 # )
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false" # TODO: get rid of these 
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false" # TODO: get rid of these 
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
 import jax
 import jax.numpy as jnp

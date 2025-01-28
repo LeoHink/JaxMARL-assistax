@@ -64,10 +64,10 @@ for dirpath in args.load_dirs:
         
         all_returns.append(returns)
 
-breakpoint()
-# all_hparams = {key: np.concatenate(val) for key, val in all_hparams.items()}
-all_hparams = {key: np.concatenate([v if len(np.shape(v)) >= 1 else np.array([v]) for v in val]) 
-               for key, val in all_hparams.items()}
+
+all_hparams = {key: np.concatenate(val) for key, val in all_hparams.items()}
+# all_hparams = {key: np.concatenate([v if len(np.shape(v)) >= 1 else np.array([v]) for v in val]) 
+#                for key, val in all_hparams.items()}
 # all_metrics = {key: np.concatenate(val) for key, val in all_metrics.items()}
 all_returns = jnp.concat(all_returns)
 
