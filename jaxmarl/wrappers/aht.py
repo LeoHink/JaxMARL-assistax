@@ -119,7 +119,7 @@ class IPPOActorCritic(nn.Module):
             bias_init=constant(0.0)
         )(critic)
 
-        ActorCriticOutput(
+        return ActorCriticOutput(
             pi=pi,
             V=jnp.squeeze(critic, axis=-1),
             hstate=None,
@@ -178,9 +178,98 @@ class IPPOActorCriticRNN(nn.Module):
             bias_init=constant(0.0)
         )(critic)
 
-        ActorCriticOutput(
+        return ActorCriticOutput(
             pi=pi,
             V=jnp.squeeze(critic, axis=-1),
+            hstate=hstate,
+        )
+
+
+class MAPPOActor(nn.Module):
+    config: Dict
+
+    @nn.compact
+    def __call__(self, hstate, x):
+        if self.config["network"]["activation"] == "relu":
+            activation = nn.relu
+        else:
+            activation = nn.tanh
+
+        obs, done, avail_actions = x
+
+        actor_mean = nn.Dense(
+            self.config["network"]["actor_hidden_dim"],
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0),
+        )(obs)
+        actor_mean = activation(actor_mean)
+        actor_mean = nn.Dense(
+            self.config["network"]["actor_hidden_dim"],
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(actor_mean)
+        actor_mean = activation(actor_mean)
+        actor_mean = nn.Dense(
+            self.config["ACT_DIM"],
+            kernel_init=orthogonal(0.01),
+            bias_init=constant(0.0)
+        )(actor_mean)
+        actor_log_std = self.param(
+            "log_std",
+            nn.initializers.zeros,
+            (self.config["ACT_DIM"],)
+        )
+        pi = (actor_mean, jnp.exp(actor_log_std))
+
+        return ActorCriticOutput(
+            pi=pi,
+            V=None,
+            hstate=None,
+        )
+
+
+class MAPPOActorRNN(nn.Module):
+    config: Dict
+
+    @nn.compact
+    def __call__(self, hstate, x):
+        if self.config["network"]["activation"] == "relu":
+            activation = nn.relu
+        else:
+            activation = nn.tanh
+
+        obs, done, avail_actions = x
+
+        embedding = nn.Dense(
+            self.config["network"]["embedding_dim"],
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0),
+        )(obs)
+        embedding = activation(embedding)
+
+        rnn_in = (embedding, done)
+        hstate, embedding = ScannedRNN()(hstate, rnn_in)
+
+        actor_mean = nn.Dense(
+            self.config["network"]["gru_hidden_dim"],
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(embedding)
+        actor_mean = activation(actor_mean)
+        actor_mean = nn.Dense(
+            self.config["ACT_DIM"],
+            kernel_init=orthogonal(0.01),
+            bias_init=constant(0.0)
+        )(actor_mean)
+        actor_log_std = self.param(
+            "log_std",
+            nn.initializers.zeros,
+            (self.config["ACT_DIM"],)
+        )
+        pi = (actor_mean, jnp.exp(actor_log_std))
+        return ActorCriticOutput(
+            pi=pi,
+            V=None,
             hstate=hstate,
         )
 
@@ -276,6 +365,7 @@ class ZooManager:
     def _load_architecture(self, agent_uuid: str) -> Tuple[Callable, Callable]:
         agent_config = self._load_config(agent_uuid)
         is_recurrent = agent_config["network"]["recurrent"]
+        alg = agent_config["ALGORITHM"]
         recurrent_dim_size = agent_config["network"].get("gru_hidden_dim")
 
         def _no_rnn_hstate_reset_fn(key):
@@ -285,10 +375,20 @@ class ZooManager:
             return jnp.zeros((recurrent_dim_size,))
 
         if is_recurrent:
-            apply_fn = IPPOActorCriticRNN(config=agent_config).apply
+            if alg == "IPPO":
+                apply_fn = IPPOActorCriticRNN(config=agent_config).apply
+            elif alg == "MAPPO":
+                apply_fn = MAPPOActorRNN(config=agent_config).apply
+            else:
+                raise Exception(f"Unknown Algorithm {alg}")
             hstate_reset_fn = _zero_rnn_hstate_reset_fn
         else:
-            apply_fn = IPPOActorCritic(config=agent_config).apply
+            if alg == "IPPO":
+                apply_fn = IPPOActorCritic(config=agent_config).apply
+            elif alg == "MAPPO":
+                apply_fn = MAPPOActor(config=agent_config).apply
+            else:
+                raise Exception(f"Unknown Algorithm {alg}")
             hstate_reset_fn = _no_rnn_hstate_reset_fn
         return apply_fn, hstate_reset_fn
 
