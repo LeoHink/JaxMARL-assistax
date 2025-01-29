@@ -540,6 +540,7 @@ class LoadAgentWrapper(JaxMARLWrapper):
             pi = distrax.MultivariateNormalDiag(*network_out.pi)
             action = pi.sample(seed=_key)
             internal_action[agent] = action
+            n_hstate[agent] = network_out.hstate
         return internal_action, n_hstate
 
     def reset_internal_hstates(self, key: chex.PRNGKey) -> Dict[str, chex.Array]:
