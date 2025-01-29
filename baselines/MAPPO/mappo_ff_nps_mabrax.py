@@ -169,6 +169,7 @@ def make_train(config, save_train_state=False):
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     )
+    
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))

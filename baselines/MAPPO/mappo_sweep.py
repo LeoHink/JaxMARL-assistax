@@ -18,6 +18,8 @@ from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict
 from base64 import urlsafe_b64encode
 
+
+
 def _tree_take(pytree, indices, axis=None):
     return jax.tree.map(lambda x: x.take(indices, axis=axis), pytree)
 
@@ -80,65 +82,52 @@ def _compute_episode_returns(eval_info, common_reward=False, time_axis=-2):
     return undiscounted_returns
 
 def _generate_sweep_axes(rng, config):
-    p_lr_rng, q_lr_rng, alpha_lr_rng, tau_rng = jax.random.split(rng, 4)
+    lr_rng, ent_coef_rng, clip_eps_rng = jax.random.split(rng, 3)
     sweep_config = config["SWEEP"]
-    if sweep_config.get("p_lr", False):
-        p_lrs = 10**jax.random.uniform(
-            p_lr_rng,
+    if sweep_config.get("lr", False):
+        lrs = 10**jax.random.uniform(
+            lr_rng,
             shape=(sweep_config["num_configs"],),
-            minval=sweep_config["p_lr"]["min"],
-            maxval=sweep_config["p_lr"]["max"],
+            minval=sweep_config["lr"]["min"],
+            maxval=sweep_config["lr"]["max"],
         )
-        p_lr_axis = 0
+        lr_axis = 0
     else:
-        p_lrs = config["POLICY_LR"]
-        p_lr_axis = None
+        lrs = config["LR"]
+        lr_axis = None
 
-    if sweep_config.get("q_lr", False):
-        q_lrs = 10**jax.random.uniform(
-            q_lr_rng,
+    if sweep_config.get("ent_coef", False):
+        ent_coefs = 10**jax.random.uniform(
+            ent_coef_rng,
             shape=(sweep_config["num_configs"],),
-            minval=sweep_config["q_lr"]["min"],
-            maxval=sweep_config["q_lr"]["max"],
+            minval=sweep_config["ent_coef"]["min"],
+            maxval=sweep_config["ent_coef"]["max"],
         )
-        q_lr_axis = 0
+        ent_coef_axis = 0
     else:
-        q_lrs = config["Q_LR"]
-        q_lr_axis = None
+        ent_coefs = config["ENT_COEF"]
+        ent_coef_axis = None
 
-    if sweep_config.get("alpha_lr", False):
-        alpha_lrs = 10**jax.random.uniform(
-            alpha_lr_rng,
+    if sweep_config.get("clip_eps", False):
+        clip_epss = 10**jax.random.uniform(
+            clip_eps_rng,
             shape=(sweep_config["num_configs"],),
-            minval=sweep_config["alpha_lr"]["min"],
-            maxval=sweep_config["alpha_lr"]["max"],
+            minval=sweep_config["clip_eps"]["min"],
+            maxval=sweep_config["clip_eps"]["max"],
         )
-        alpha_lr_axis = 0
+        clip_eps_axis = 0
     else:
-        alpha_lrs = config["ALPHA_LR"]
-        alpha_lr_axis = None
-
-    if sweep_config.get("tau", False):
-        taus = 10**jax.random.uniform(
-            tau_rng,
-            shape=(sweep_config["num_configs"],),
-            minval=sweep_config["tau"]["min"],
-            maxval=sweep_config["tau"]["max"],
-        )
-        tau_axis = 0
-    else:
-        taus = config["TAU"]
-        tau_axis = None
-
+        clip_epss = config["CLIP_EPS"]
+        clip_eps_axis = None
 
     return {
-        "p_lr": {"val": p_lrs, "axis": p_lr_axis},
-        "q_lr": {"val": q_lrs, "axis": q_lr_axis},
-        "alpha_lr": {"val": alpha_lrs, "axis": alpha_lr_axis},
-        "tau": {"val": taus, "axis":tau_axis},
+        "lr": {"val": lrs, "axis": lr_axis},
+        "ent_coef": {"val": ent_coefs, "axis":ent_coef_axis},
+        "clip_eps": {"val": clip_epss, "axis":clip_eps_axis},
     }
 
-@hydra.main(version_base=None, config_path="config", config_name="masac_sweep")
+
+@hydra.main(version_base=None, config_path="config", config_name="mappo_sweep")
 def main(config):
     config_key = hash(config) % 2**62
     config_key = urlsafe_b64encode(
@@ -151,17 +140,15 @@ def main(config):
     config = OmegaConf.to_container(config, resolve=True)
 
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
-    # match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
-    #     case (False, False):
-    #         from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    #     case (False, True):
-    #         from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    #     case (True, False):
-    #         from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-    #     case (True, True):
-    #         from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
-
-    from masac_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+    match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
+        case (False, False):
+            from mappo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+        case (False, True):
+            from mappo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+        case (True, False):
+            from mappo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+        case (True, True):
+            from mappo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
     rng = jax.random.PRNGKey(config["SEED"])
     train_rng, eval_rng, sweep_rng = jax.random.split(rng, 3)
@@ -175,30 +162,26 @@ def main(config):
         out = jax.vmap(
             jax.vmap(
                 train_jit,
-                in_axes=(0, None, None, None, None)
+                in_axes=(0, None, None, None)
             ),
             in_axes=(
                 None,
-                sweep["p_lr"]["axis"],
-                sweep["q_lr"]["axis"],
-                sweep["alpha_lr"]["axis"],
-                sweep["tau"]["axis"],
+                sweep["lr"]["axis"],
+                sweep["ent_coef"]["axis"],
+                sweep["clip_eps"]["axis"],
             )
         )(
             train_rngs,
-            sweep["p_lr"]["val"],
-            sweep["q_lr"]["val"],
-            sweep["alpha_lr"]["val"],
-            sweep["tau"]["val"]
+            sweep["lr"]["val"],
+            sweep["ent_coef"]["val"],
+            sweep["clip_eps"]["val"],
         )
 
         # SAVE TRAIN METRICS
-        EXCLUDED_METRICS = ["actor_train_state", "q1_train_state", "q2_train_state"]
-        saveable_metrics = {key: val.copy() for key, val in out["metrics"].items() if key not in EXCLUDED_METRICS}
-        
+        EXCLUDED_METRICS = ["train_state"]
         jnp.save(f"{config_key}/metrics.npy", {
             key: val
-            for key, val in saveable_metrics.items()
+            for key, val in out["metrics"].items()
             if key not in EXCLUDED_METRICS
             },
             allow_pickle=True
@@ -206,39 +189,33 @@ def main(config):
         
         # SAVE SWEEP HPARAMS
         jnp.save(f"{config_key}/hparams.npy", {
-            "p_lr": sweep["p_lr"]["val"],
-            "q_lr": sweep["q_lr"]["val"],
-            "alpha_lr": sweep["alpha_lr"]["val"],            
-            "tau": sweep["tau"]["val"],
-            "num_updates": config["NUM_UPDATES"],
-            "total_timesteps": config["TOTAL_TIMESTEPS"],
+            "lr": sweep["lr"]["val"],
+            "ent_coef": sweep["ent_coef"]["val"],
+            "clip_eps": sweep["clip_eps"]["val"],
+            "num_steps": config["NUM_STEPS"],
             "num_envs": config["NUM_ENVS"],
-            "num_sac_updates": config["NUM_SAC_UPDATES"],
-            "batch_size": config["BATCH_SIZE"],
-            "buffer_size": config["BUFFER_SIZE"],
-            "rollout_length": config["ROLLOUT_LENGTH"],
-            "explore_steps": config["EXPLORE_STEPS"],
+            "update_epochs": config["UPDATE_EPOCHS"],
+            "num_minibatches": config["NUM_MINIBATCHES"],
             }
         )
 
         # SAVE PARAMS
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-        all_train_states = out["metrics"]["actor_train_state"]
-
-        final_train_state = out["runner_state"].train_states.actor
+        all_train_states = out["metrics"]["train_state"]
+        final_train_state = out["runner_state"].train_state
         safetensors.flax.save_file(
-            flatten_dict(all_train_states.params, sep='/'),
+            flatten_dict(all_train_states.actor.params, sep='/'),
             f"{config_key}/all_params.safetensors"
         )
         if config["network"]["agent_param_sharing"]:
             safetensors.flax.save_file(
-                flatten_dict(final_train_state.params, sep='/'),
+                flatten_dict(final_train_state.actor.params, sep='/'),
                 f"{config_key}/final_params.safetensors"
             )
         else:
             # split by agent
             split_params = _unstack_tree(
-                jax.tree.map(lambda x: jnp.moveaxis(x, 2, 0), final_train_state.params)
+                jax.tree.map(lambda x: jnp.moveaxis(x, 2, 0), final_train_state.actor.params)
             )
             for agent, params in zip(env.agents, split_params):
                 safetensors.flax.save_file(
@@ -248,7 +225,7 @@ def main(config):
 
         # RUN EVALUATION
         # Assume the first 3 dimensions are batch dims
-        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:3]
+        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.actor.params))[:3]
         n_sequential_evals = int(jnp.ceil(
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
             / config["GPU_ENV_CAPACITY"]
@@ -276,11 +253,11 @@ def main(config):
         )
         eval_jit = jax.jit(
             run_eval,
-            static_argnames=["log_eval_info"], # do the eval_state eventually
+            static_argnames=["log_eval_info"],
         )
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
         evals = _concat_tree([
-            eval_vmap(eval_rng, ts, False)
+            eval_vmap(eval_rng, ts, eval_log_config)
             for ts in tqdm(split_trainstate, desc="Evaluation batches")
         ])
         evals = jax.tree.map(

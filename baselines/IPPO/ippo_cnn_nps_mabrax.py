@@ -19,6 +19,76 @@ from typing import Sequence, NamedTuple, Any, Dict, Optional
 
 import functools
 
+class CNNEncoder(nn.Module):
+    """CNN Encoder with 4 conv layers, flatten, linear projection, and layer normalization"""
+    hidden_dim: int  
+    activation_type: str  
+    
+    def setup(self):
+        if self.activation_type == "relu":
+            self.activation = nn.relu
+        else:
+            self.activation = nn.tanh
+    
+    @nn.compact
+    def __call__(self, x):
+        # 1st conv
+        x = nn.Conv(
+            features=32,
+            kernel_size=(8, 8),
+            strides=(4, 4),
+            padding="VALID",
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(x)
+        x = self.activation(x)
+        
+        # 2nd conv
+        x = nn.Conv(
+            features=64,
+            kernel_size=(4, 4),
+            strides=(2, 2),
+            padding="VALID",
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(x)
+        x = self.activation(x)
+        
+        # 3rd conv 
+        x = nn.Conv(
+            features=64,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="VALID",
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(x)
+        x = self.activation(x)
+        
+        # 4th conv
+        x = nn.Conv(
+            features=64,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="VALID",
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(x)
+        x = self.activation(x)
+        
+
+        # Flatten and linear projection
+        x = x.reshape((x.shape[0], -1))
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(x)
+        
+        x = nn.LayerNorm()(x)
+        
+        return x
+
 @functools.partial(
     nn.vmap,
     in_axes=0, out_axes=0,
@@ -26,7 +96,7 @@ import functools
     split_rngs={"params": True},
     axis_name="agents",
 )
-class MultiActorCritic(nn.Module):
+class MultiActorCriticCNN(nn.Module):
     config: Dict
 
     @nn.compact
@@ -153,7 +223,6 @@ def make_train(config, save_train_state=False):
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     env = LogWrapper(env, replace_info=True)
     print(f"Num updates: {config['NUM_UPDATES']}")
-    print(f"Env: {config['ENV_NAME']}")
     def linear_schedule(initial_lr):
         def _linear_schedule(count):
             frac = (

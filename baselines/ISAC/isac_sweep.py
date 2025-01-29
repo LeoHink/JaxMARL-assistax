@@ -138,7 +138,7 @@ def _generate_sweep_axes(rng, config):
         "tau": {"val": taus, "axis":tau_axis},
     }
 
-@hydra.main(version_base=None, config_path="config", config_name="masac_sweep")
+@hydra.main(version_base=None, config_path="config", config_name="isac_sweep")
 def main(config):
     config_key = hash(config) % 2**62
     config_key = urlsafe_b64encode(
@@ -161,7 +161,7 @@ def main(config):
     #     case (True, True):
     #         from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
-    from masac_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+    from isac_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
     rng = jax.random.PRNGKey(config["SEED"])
     train_rng, eval_rng, sweep_rng = jax.random.split(rng, 3)
@@ -226,7 +226,7 @@ def main(config):
         all_train_states = out["metrics"]["actor_train_state"]
 
         final_train_state = out["runner_state"].train_states.actor
-        safetensors.flax.save_file(
+        safetensors.flax.save_file( # could get rid of this to only save final params
             flatten_dict(all_train_states.params, sep='/'),
             f"{config_key}/all_params.safetensors"
         )
@@ -267,7 +267,6 @@ def main(config):
             env_state=False,
             done=True,
             action=False,
-            value=False,
             reward=True,
             log_prob=False,
             obs=False,
@@ -280,7 +279,7 @@ def main(config):
         )
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
         evals = _concat_tree([
-            eval_vmap(eval_rng, ts, False)
+            eval_vmap(eval_rng, ts, eval_log_config)
             for ts in tqdm(split_trainstate, desc="Evaluation batches")
         ])
         evals = jax.tree.map(

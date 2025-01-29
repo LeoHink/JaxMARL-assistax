@@ -4,8 +4,8 @@ import os
 #     "--xla_gpu_triton_gemm_any=true "
 #     "--xla_dump_to=xla_dump "
 # )
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false" # TODO: get rid of these 
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false" # TODO: get rid of these 
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -18,7 +18,7 @@ import distrax
 import sys
 import numpy as np
 import jaxmarl
-from jaxmarl.distributions.tanh_distribution import TanhTransformedDistribution # try new distribution
+# from jaxmarl.distributions.tanh_distribution import TanhTransformedDistribution # try new distribution
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper
 import hydra
@@ -27,7 +27,7 @@ from typing import Sequence, NamedTuple, TypeAlias, Any, Dict
 import os
 import functools
 from functools import partial
-import tensorflow_probability.substrates.jax.distributions as tfd
+# import tensorflow_probability.substrates.jax.distributions as tfd
 from flax.core.scope import FrozenVariableDict
 from flashbax.buffers.trajectory_buffer import TrajectoryBufferState
 import flashbax as fbx
@@ -487,14 +487,6 @@ def make_train(config, save_train_state=True):
                     
                     pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
                     
-                    # tfd variation 
-                    # act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
-                    # pi = tfd.Independent(
-                    #     TanhTransformedDistribution(act_distribution),
-                    #     reinterpreted_batch_ndims=1,
-                    # )
-                    # action = pi.sample(seed=action_rng)
-                    
                     pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)    
                     action = pi_tanh.sample(seed=action_rng)
                     env_act = unbatchify(action, env.agents)
@@ -713,7 +705,7 @@ def make_train(config, save_train_state=True):
                             'q2_loss': q2_loss,
                             'next_log_prob': next_log_prob
                             }
-                        jax.debug.print("Updating Q")
+
                         return q_update_train_state, q_metrics
 
                     # actor loss and gradient 
@@ -759,7 +751,7 @@ def make_train(config, save_train_state=True):
                             "alpha_loss": temperature_loss, 
                             "mean_log_prob": log_prob.mean(), 
                             }
-                        jax.debug.print("Updating Actor")
+                        # jax.debug.print("Updating Actor")
                         return (act_update_train_state, actor_metrics), _
                     
                     q_update_train_state, q_info = update_q(train_state)
@@ -851,7 +843,6 @@ def make_train(config, save_train_state=True):
             explore_traj_batch
         ) 
         
-
         explore_runner_state = RunnerState(
             train_states=explore_runner_state.train_states,
             env_state=explore_runner_state.env_state,
@@ -881,6 +872,7 @@ def make_evaluation(config):
     env = LogWrapper(env, replace_info=True)
     max_steps = env.episode_length
     tanh_bijector = distrax.Block(distrax.Tanh(), ndims=1)
+    det_eval = config["DETERMINISTIC_EVAL"]
 
     def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig()):
         rng_reset, rng_env = jax.random.split(rng)
@@ -906,32 +898,21 @@ def make_evaluation(config):
             )
             ac_in = (obs_batch, runner_state.last_done, avail_actions)
 
-            # SELECT ACTION
-            
             rng, action_rng = jax.random.split(rng)
             (actor_mean, actor_std) = runner_state.train_states.apply_fn(
                 runner_state.train_states.params, 
                 ac_in
                 )
-                
-            # pi_normal = distrax.Normal(actor_mean, actor_std)
-            # pi_tanh_normal = distrax.Transformed(pi_normal, bijector=distrax.Tanh())
-            # pi_tanh = distrax.Independent(pi_tanh_normal, 1)
-            # action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
-
-            pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
- 
-            # act_distribution = tfd.Normal(loc=actor_mean, scale=actor_std)
-            # pi = tfd.Independent(
-            #         TanhTransformedDistribution(act_distribution),
-            #         reinterpreted_batch_ndims=1,
-            #     )
-            # action = pi.sample(seed=action_rng)
-            # log_prob = pi.log_prob(action)
+            # SELECT ACTION
+            if det_eval:
+                action = jnp.tanh(actor_mean)
             
-            pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+            else:
+                pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+ 
+                pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
 
-            action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+                action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
             env_act = unbatchify(action, env.agents)
 

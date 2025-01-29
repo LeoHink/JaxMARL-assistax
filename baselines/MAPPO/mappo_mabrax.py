@@ -76,20 +76,20 @@ def _compute_episode_returns(eval_info, time_axis=-2):
 
 
 
-@hydra.main(version_base=None, config_path="config", config_name="ippo_mabrax")
+@hydra.main(version_base=None, config_path="config", config_name="mappo_mabrax")
 def main(config):
     config = OmegaConf.to_container(config, resolve=True)
 
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
         case (False, False):
-            from ippo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_ff_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (False, True):
-            from ippo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_ff_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (True, False):
-            from ippo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_rnn_nps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
         case (True, True):
-            from ippo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
+            from mappo_rnn_ps_mabrax import make_train, make_evaluation, EvalInfoLogConfig
 
     rng = jax.random.PRNGKey(config["SEED"])
     train_rng, eval_rng = jax.random.split(rng)
@@ -121,18 +121,18 @@ def main(config):
         all_train_states = out["metrics"]["train_state"]
         final_train_state = out["runner_state"].train_state
         safetensors.flax.save_file(
-            flatten_dict(all_train_states.params, sep='/'),
+            flatten_dict(all_train_states.actor.params, sep='/'),
             "all_params.safetensors"
         )
         if config["network"]["agent_param_sharing"]:
             safetensors.flax.save_file(
-                flatten_dict(final_train_state.params, sep='/'),
+                flatten_dict(final_train_state.actor.params, sep='/'),
                 "final_params.safetensors"
             )
         else:
             # split by agent
             split_params = _unstack_tree(
-                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state.params)
+                jax.tree.map(lambda x: x.swapaxes(0,1), final_train_state.actor.params)
             )
             for agent, params in zip(env.agents, split_params):
                 safetensors.flax.save_file(
@@ -142,7 +142,7 @@ def main(config):
 
         # RUN EVALUATION
         # Assume the first 2 dimensions are batch dims
-        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:2]
+        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.actor.params))[:2]
         n_sequential_evals = int(jnp.ceil(
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
             / config["GPU_ENV_CAPACITY"]

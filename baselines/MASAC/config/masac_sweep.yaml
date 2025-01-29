@@ -7,19 +7,19 @@ ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
   backend: mjx
-  # disability:
-  #   joint_idx: 13
-  #   joint_restriction_factor: 1.0
-  #   joint_strength: 1.0
-  #   tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 6e6
+  disability:
+    joint_idx: 13
+    joint_restriction_factor: 1.0
+    joint_strength: 1.0
+    tremor_magnitude: 0.0
+TOTAL_TIMESTEPS: 30e6
 
 # NUM_STEPS: 256
-NUM_ENVS: 32
-NUM_SEEDS: 6
-SEED: 0
+NUM_ENVS: 256
+NUM_SEEDS: 2
+SEED: 1
 NUM_EVAL_EPISODES: 32 # lower for rendering
-NUM_CHECKPOINTS: 256 # how often to save the training parameters for evaluating later
+NUM_CHECKPOINTS: 128 # how often to save the training parameters for evaluating later
 
 TEST_DURING_TRAINING: True # not currently in use for SAC
 
@@ -49,31 +49,31 @@ TARGET_ENTROPY_SCALE: 5.0  # scale factor for target entropy (when auto-tuning)
 INIT_ALPHA: 0.1  # initial entropy value when not using autotune
 
 # WANDB
-# WANDB_GROUP: scratchitch
-# WANDB_RUN: test
+WANDB_GROUP: scratchitch
+WANDB_RUN: test
 
 # COMPUTE OPTIONS
 GPU_ENV_CAPACITY: 8192
 DISABLE_JIT: False
 DEVICE: 0
 
-DETERMINISTIC_EVAL: False
+DETERMINISTIC_EVAL: True
 
 # SWEEPER SETTINGS
 SWEEP:
-  num_configs: 5
+  num_configs: 3
   p_lr:
     min: -5.0
     max: -2.0
   q_lr:
     min: -5.0
     max: -2.0
-  alpha_lr:
-    min: -5.0
-    max: -2.0
-  tau: 
-    min: -4.0
-    max: -1.0 
+  alpha_lr: false
+    # min: -5.0
+    # max: -2.0
+  tau: false
+    # min: -4.0
+    # max: -1.0 
 
 # CROSSPLAY SETTINGS
 crossplay:
