@@ -273,6 +273,53 @@ class MAPPOActorRNN(nn.Module):
             hstate=hstate,
         )
 
+class SACActor(nn.Module):
+    config: Dict
+    
+    @nn.compact
+    def __call__(self, x):
+        if self.config["network"]["activation"] == "relu":
+            activation = nn.relu
+        else:
+            activation = nn.tanh
+            
+        obs, done, avail_actions = x
+        # actor Network
+        actor_hidden = nn.Dense(
+            self.config["network"]["actor_hidden_dim"],
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(obs)
+        actor_hidden = activation(actor_hidden)
+        actor_hidden = nn.Dense(
+            self.config["network"]["actor_hidden_dim"],
+            kernel_init=orthogonal(jnp.sqrt(2)),
+            bias_init=constant(0.0)
+        )(actor_hidden)
+        actor_hidden = activation(actor_hidden)
+        
+        # output mean
+        actor_mean = nn.Dense(
+            self.config["ACT_DIM"],
+            kernel_init=orthogonal(0.01),
+            bias_init=constant(0.0)
+        )(actor_hidden)
+        
+        # log std
+        log_std = self.param(
+            "log_std",
+            nn.initializers.zeros,
+            (self.config["ACT_DIM"],)
+        )
+        actor_log_std = jnp.broadcast_to(log_std, actor_mean.shape)
+        pi = actor_mean, jnp.exp(actor_log_std) # could try softplus instead or just return log_std and then do the transformation after 
+
+        return ActorCriticOutput(
+            pi=pi,
+            V=None,
+            hstate=None,
+        )
+
 
 @struct.dataclass
 class ZooState:
@@ -387,6 +434,8 @@ class ZooManager:
                 apply_fn = IPPOActorCritic(config=agent_config).apply
             elif alg == "MAPPO":
                 apply_fn = MAPPOActor(config=agent_config).apply
+            elif alg == "MASAC":
+                apply_fn = SACActor(config=agent_config).apply
             else:
                 raise Exception(f"Unknown Algorithm {alg}")
             hstate_reset_fn = _no_rnn_hstate_reset_fn
