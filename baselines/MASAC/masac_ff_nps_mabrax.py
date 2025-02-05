@@ -21,6 +21,7 @@ import jaxmarl
 # from jaxmarl.distributions.tanh_distribution import TanhTransformedDistribution # try new distribution
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper
+from jaxmarl.wrappers.aht import ZooManager, LoadAgentWrapper
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, TypeAlias, Any, Dict
@@ -270,8 +271,13 @@ def flatten_actions(x):
     return x.reshape(n_envs, n_agents * act_dim)
 
 
-def make_train(config, save_train_state=True): 
-    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+def make_train(config, save_train_state=True, load_zoo=False): 
+    if load_zoo:
+        zoo = ZooManager(config["ZOO_PATH"])
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+        env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
+    else:
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["NUM_UPDATES"] = jnp.ceil(
         config["TOTAL_TIMESTEPS"] / config["ROLLOUT_LENGTH"] / config["NUM_ENVS"]
     ) # round up to do at least config["TOTAL_TIMESTEPS"]
@@ -865,8 +871,13 @@ def make_train(config, save_train_state=True):
     
     return train
 
-def make_evaluation(config):
-    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+def make_evaluation(config, load_zoo=False):
+    if load_zoo:
+        zoo = ZooManager(config["ZOO_PATH"])
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+        env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
+    else:
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
     env = LogWrapper(env, replace_info=True)
