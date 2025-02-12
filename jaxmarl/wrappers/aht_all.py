@@ -36,6 +36,9 @@ def get_param_keys(zoo_state) -> list[str]:
     flat_params = flatten_dict(zoo_state.params, sep='/')
     return sorted(flat_params.keys())
 
+def _tree_shape(pytree):
+    return jax.tree.map(lambda x: x.shape, pytree)
+
 @struct.dataclass
 class ActorCriticOutput:
     pi: Optional[chex.Array | Tuple[chex.Array,chex.Array]] = None
@@ -508,23 +511,38 @@ class LoadAgentWrapper(JaxMARLWrapper):
 
         load_agents: Dict[str, Dict[str, LoadNetworkState]] = {}
         for algorithm, agents_dict in load_agents_uuids.items():
-            # Here we assume that for each algorithm group you have a dict like {'human': [ZooState, ...]}
-            # and you want to stack all the ZooStates for that algorithm regardless of the agent key.
-            # (If there are multiple keys, you might want to merge them or choose one.)
-            # For this example, we’ll take the first (or only) key 'human' in the dictionary.
             if algorithm not in load_agents:
                 load_agents[algorithm] = {}
             for agent, agent_uuids in agents_dict.items():
                 if isinstance(agent_uuids, str):
+                    # Single agent case.
                     zoo_state = zoo.load_agent(agent_uuids)
                     load_agents[algorithm][agent] = LoadNetworkState(
                         apply_fn=jax.vmap(zoo_state.apply_fn, in_axes=(0, None, None)),
                         hstate_reset_fn=zoo_state.hstate_reset_fn,
-                        params=jnp.tree.map(lambda x: jnp.expand_dims(x, 0), zoo_state.params),
+                        params=jax.tree.map(lambda x: jnp.expand_dims(x, 0), zoo_state.params),
                         pop_size=1,
                     )
                 else:
+                    # Multiple agents: load each zoo_state.
                     zoo_states = [zoo.load_agent(agent_uuid) for agent_uuid in agent_uuids]
+
+                    # group the zoo states by their parameter shapes
+                    shape_groups = {}
+                    for agent_uuid, zs in zip(agent_uuids, zoo_states):
+                        
+                        flat_shapes, _ = jax.tree_util.tree_flatten(_tree_shape(zs.params))
+                        shape_key = tuple(flat_shapes)
+                        shape_groups.setdefault(shape_key, []).append(agent_uuid)
+                    
+                    # if more than one group exists there is a shape mismatch raise error and return which uuids are wrong to help fix
+                    if len(shape_groups) > 1:
+                        raise ValueError(
+                            f"Mismatching parameter shapes for agent '{agent}' under algorithm '{algorithm}'.\n"
+                            f"Groups by shape signature (each key is a tuple of shapes): {shape_groups}"
+                        )
+                    
+                   
                     load_agents[algorithm][agent] = LoadNetworkState(
                         apply_fn=jax.vmap(zoo_states[0].apply_fn, in_axes=(0, None, None)),
                         hstate_reset_fn=zoo_states[0].hstate_reset_fn,
@@ -611,7 +629,7 @@ class LoadAgentWrapper(JaxMARLWrapper):
         }
         
         For each agent (e.g. "human") we want to combine the population sizes from all algorithms and sample
-        a single random index in [0, total_population). If a particular train_state.pop_size is None, it is treated as 1.
+        a single random index in [0, total_population).
         
         The final returned dictionary is flat and looks like:
         { "human": index, ... }
