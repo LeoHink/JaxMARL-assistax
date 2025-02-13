@@ -281,7 +281,7 @@ def make_train(config, save_train_state=True, load_zoo=False):
     config["NUM_UPDATES"] = jnp.ceil(
         config["TOTAL_TIMESTEPS"] / config["ROLLOUT_LENGTH"] / config["NUM_ENVS"]
     ) # round up to do at least config["TOTAL_TIMESTEPS"]
-    config["TOTAL_TIMESTEPS"] = config["NUM_UPDATES"] * config["ROLLOUT_LENGTH"] * config["NUM_ENVS"] # recalculate actual total timesteps
+    config["TOTAL_TIMESTEPS"] = int(config["NUM_UPDATES"] * config["ROLLOUT_LENGTH"] * config["NUM_ENVS"]) # recalculate actual total timesteps
     config["SCAN_STEPS"] = config["NUM_UPDATES"] // config["NUM_CHECKPOINTS"]
     config["EXPLORE_SCAN_STEPS"] = config["EXPLORE_STEPS"] // config["NUM_ENVS"]
     print(f"TOTAL_TIMESTEPS: {config['TOTAL_TIMESTEPS']} \n NUM_UPDATES: {config['NUM_UPDATES']} \n SCAN_STEPS: {config['SCAN_STEPS']} \n EXPLORE_STEPS: {config['EXPLORE_STEPS']} \n NUM_CHECKPOINTS: {config['NUM_CHECKPOINTS']}")
