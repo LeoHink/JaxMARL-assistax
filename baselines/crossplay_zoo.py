@@ -1,4 +1,5 @@
 import os
+import os.path as osp
 import time
 import jax
 import jax.numpy as jnp
@@ -226,6 +227,14 @@ def main(config):
         
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
         # LOAD PARAMS
+        
+        for alg, robo_agents in robo_filtered.items():
+            for agent_uuid in robo_agents.agent_uuid:
+                params = unflatten_dict(
+                    safetensors.flax.load_file(osp.join(config["ZOO_PATH"], "params", agent_uuid+".safetensors")),
+                        sep='/'
+                        )
+        
         
         agent_params = {
             agent_name: unflatten_dict(safetensors.flax.load_file(path), sep='/')
