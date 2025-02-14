@@ -13,6 +13,7 @@ import distrax
 import jaxmarl
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper
+from jaxmarl.wrappers.aht_all import ZooManager, LoadAgentWrapper, LoadEvalAgentWrapper
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict, Optional
@@ -164,8 +165,15 @@ def unbatchify(qty: jnp.ndarray, agents: Sequence[str]) -> Dict[str, jnp.ndarray
     # N.B. assumes the leading dimension is the agent dimension
     return dict(zip(agents, qty))
 
-def make_train(config, save_train_state=False):
-    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+def make_train(config, save_train_state=False, load_zoo=False):
+     
+    if load_zoo:
+        zoo = ZooManager(config["ZOO_PATH"])
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+        env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
+    else:
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+    
     config["NUM_UPDATES"] = (
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     )
@@ -540,7 +548,16 @@ def make_train(config, save_train_state=False):
 
     return train
 
-def make_evaluation(config):
+def make_evaluation(config, load_zoo=False, crossplay=False):
+    if load_zoo:
+        zoo = ZooManager(config["ZOO_PATH"])
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+        if crossplay:
+            env = LoadEvalAgentWrapper.load_from_zoo(env, zoo, load_zoo)
+        else:
+            env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
+    else:
+        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))

@@ -21,7 +21,7 @@ import jaxmarl
 # from jaxmarl.distributions.tanh_distribution import TanhTransformedDistribution # try new distribution
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper
-from jaxmarl.wrappers.aht import ZooManager, LoadAgentWrapper
+from jaxmarl.wrappers.aht_all import ZooManager, LoadAgentWrapper, LoadEvalAgentWrapper
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, TypeAlias, Any, Dict
@@ -871,11 +871,14 @@ def make_train(config, save_train_state=True, load_zoo=False):
     
     return train
 
-def make_evaluation(config, load_zoo=False):
+def make_evaluation(config, load_zoo=False, crossplay=False):
     if load_zoo:
         zoo = ZooManager(config["ZOO_PATH"])
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-        env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
+        if crossplay:
+            env = LoadEvalAgentWrapper.load_from_zoo(env, zoo, load_zoo, crossplay)
+        else:
+            env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
     else:
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
