@@ -160,7 +160,7 @@ def main(config):
             config["ALPHA_LR"],
             config["TAU"],
         )
-        final_train_state = out["runner_state"].train_state.actor.params
+        final_train_state = out["runner_state"].train_states.actor.params
         zoo = ZooManager(config["ZOO_PATH"])
         for agent_idx, agent_id in enumerate(env.agents):
             for seed_idx in range(config["NUM_SEEDS"]):

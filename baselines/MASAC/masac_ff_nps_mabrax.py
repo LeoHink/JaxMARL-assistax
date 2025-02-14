@@ -278,8 +278,8 @@ def make_train(config, save_train_state=True, load_zoo=False):
         env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
     else:
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    config["NUM_UPDATES"] = jnp.ceil(
-        config["TOTAL_TIMESTEPS"] / config["ROLLOUT_LENGTH"] / config["NUM_ENVS"]
+    config["NUM_UPDATES"] = int(jnp.ceil(
+        config["TOTAL_TIMESTEPS"] / config["ROLLOUT_LENGTH"] / config["NUM_ENVS"])
     ) # round up to do at least config["TOTAL_TIMESTEPS"]
     config["TOTAL_TIMESTEPS"] = int(config["NUM_UPDATES"] * config["ROLLOUT_LENGTH"] * config["NUM_ENVS"]) # recalculate actual total timesteps
     config["SCAN_STEPS"] = config["NUM_UPDATES"] // config["NUM_CHECKPOINTS"]
