@@ -43,7 +43,10 @@ DEVICE: 0
 # EVAL SETTINGS
 eval:
   compute_value: false
-  path: /path/to/all_params.safetensors
+  path: 
+    human: /home/leo/assistax/JaxMARL/baselines/MAPPO/outputs/mabrax/bedbathing/2025-02-04/23-54-52/r1.0_s1.0_t0.0_0/human.safetensors
+    robot: /home/leo/assistax/JaxMARL/baselines/MAPPO/outputs/mabrax/bedbathing/2025-02-04/23-54-52/r1.0_s1.0_t0.0_0/robot.safetensors
+
 
 # SWEEPER SETTINGS
 sweep:

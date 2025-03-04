@@ -42,7 +42,10 @@ DISABLE_JIT: False
 DEVICE: 0
 
 # ZOO SETTINGS
-ZOO_PATH: /home/efos/assistax/zoo
+ZOO_PATH: /home/leo/assistax/zoo
+
+eval:
+  compute_value: false
 
 
 hydra:

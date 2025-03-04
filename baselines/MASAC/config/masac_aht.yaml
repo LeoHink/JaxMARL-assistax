@@ -7,11 +7,11 @@ ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
   backend: mjx
-  # disability:
-  #   joint_idx: 13
-  #   joint_restriction_factor: 1.0
-  #   joint_strength: 1.0
-  #   tremor_magnitude: 0.0
+  disability:
+    joint_idx: 13
+    joint_restriction_factor: 1.0
+    joint_strength: 1.0
+    tremor_magnitude: 0.0
 TOTAL_TIMESTEPS: 6e6
 
 # NUM_STEPS: 256

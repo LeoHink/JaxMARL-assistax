@@ -25,10 +25,16 @@ from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict, Callable
 from flax import struct
 
+
+
 @struct.dataclass
 class EvalNetworkState:
     apply_fn: Callable = struct.field(pytree_node=False)
     params: Dict
+
+@struct.dataclass
+class ActorNetworkState:
+    actor: EvalNetworkState
 
 def _tree_take(pytree, indices, axis=None):
     return jax.tree.map(lambda x: x.take(indices, axis=axis), pytree)
@@ -48,8 +54,16 @@ def _take_episode(pipeline_states, dones, time_idx=-1, eval_idx=0):
         if not (done)
     ]
 
+def _tree_shape(pytree):
+    return jax.tree.map(lambda x: x.shape, pytree)
 
-@hydra.main(version_base=None, config_path="config", config_name="ippo_mabrax")
+def _stack_tree(pytree_list, axis=0):
+    return jax.tree.map(
+        lambda *leaf: jnp.stack(leaf, axis=axis),
+        *pytree_list
+    )
+
+@hydra.main(version_base=None, config_path="config", config_name="mappo_mabrax")
 def main(config):
     config = OmegaConf.to_container(config, resolve=True)
 
@@ -69,13 +83,20 @@ def main(config):
             from mappo_rnn_ps_mabrax import ActorRNN as NetworkArch
         case _:
             raise Exception
-
     rng = jax.random.PRNGKey(config["SEED"])
     rng, eval_rng = jax.random.split(rng)
     with jax.disable_jit(config["DISABLE_JIT"]):
-        all_train_states = unflatten_dict(
-            safetensors.flax.load_file(config["eval"]["path"]), sep='/'
+        
+        human_params = unflatten_dict(
+            safetensors.flax.load_file(config["eval"]["path"]["human"]), sep='/'
         )
+
+        robot_params = unflatten_dict(
+            safetensors.flax.load_file(config["eval"]["path"]["robot"]), sep='/'
+        )
+
+        agent_params = {'human': human_params, 'robot': robot_params}
+
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(
             env_state=True,
@@ -93,15 +114,30 @@ def main(config):
             static_argnames=["log_eval_info"],
         )
         network = NetworkArch(config=config)
-        # RENDER
-        # Run episodes for render (saving env_state at each timestep)
-        final_train_state = _tree_take(all_train_states, -1, axis=1)
-        final_eval_network_state = EvalNetworkState(
-            apply_fn=network.apply,
-            params=final_train_state
+
+        robot = _tree_take(
+            agent_params["robot"],
+            0,
+            axis=0
         )
- 
-        eval_final = eval_jit(eval_rng, _tree_take(final_eval_network_state, 0, axis=0), eval_log_config)
+        human = _tree_take(
+            agent_params["human"],
+            0,
+            axis=0
+        )
+        eval_network_state = EvalNetworkState(
+            apply_fn=network.apply,
+            params=_stack_tree([robot, human]),
+        )
+
+        final_eval_network_state = ActorNetworkState(
+            actor=eval_network_state
+        )
+        
+        # RENDER
+        # Run episodes for render (saving env_state at each timeste
+    
+        eval_final = eval_jit(eval_rng, final_eval_network_state, eval_log_config)
         first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
         first_episode_returns = first_episode_rewards.sum(axis=0)

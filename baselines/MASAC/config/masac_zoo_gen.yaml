@@ -7,18 +7,18 @@ ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
   backend: mjx
-  # disability:
-  #   joint_idx: 13
-  #   joint_restriction_factor: 1.0
-  #   joint_strength: 1.0
-  #   tremor_magnitude: 0.0
-TOTAL_TIMESTEPS: 6e6
+  disability:
+    joint_idx: 13
+    joint_restriction_factor: 1.0
+    joint_strength: 1.0
+    tremor_magnitude: 0.0
+TOTAL_TIMESTEPS: 1e6
 
 # NUM_STEPS: 256
 NUM_ENVS: 32
 NUM_SEEDS: 6
 SEED: 0
-NUM_EVAL_EPISODES: 32 # lower for rendering
+NUM_EVAL_EPISODES: 2 # lower for rendering
 NUM_CHECKPOINTS: 256 # how often to save the training parameters for evaluating later
 
 TEST_DURING_TRAINING: True # not currently in use for SAC
@@ -61,7 +61,7 @@ DEVICE: 0
 DETERMINISTIC_EVAL: False
 
 # ZOO SETTINGS
-ZOO_PATH: /path/to/zoo
+ZOO_PATH: /home/leo/assistax/zoo2
 
 eval: # path to actor all params for eval
   path: /home/leo/assistax/JaxMARL/baselines/MASAC/outputs/mabrax/scratchitch/2025-01-16/11-52-11/actor_all_params.safetensors

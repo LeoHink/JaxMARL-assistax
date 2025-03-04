@@ -101,10 +101,8 @@ def main(config):
     with jax.disable_jit(config["DISABLE_JIT"]):
         zoo = ZooManager(config["ZOO_PATH"])
         alg = config["ALGORITHM"]
-        scenario = config["ENV_NAME"]
-        index_filtered = zoo.index.query(f'algorithm == "{alg}"'
-                                 ).query(f'scenario == "{scenario}"'
-                                 ).query('scenario_agent_id == "human"')
+        env_name = config["ENV_NAME"]
+        index_filtered = zoo.index.query(f'algorithm == "{alg}"').query(f'scenario == "{env_name}"').query('scenario_agent_id == "human"')
         train_set = index_filtered.sample(frac=0.5)
         test_set = index_filtered.drop(train_set.index)
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])

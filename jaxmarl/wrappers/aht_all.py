@@ -667,7 +667,6 @@ class LoadAgentWrapper(JaxMARLWrapper):
             key_action, obs, dones, avail_actions, hstate
         )
         ag_idx = self.reset_agent_index(key_ag_idx)
-
         load_agent_actions = jax.tree.map(lambda i, a: a[i], ag_idx, load_agent_actions)
         state = LoadAgentState(
             _state=state,
@@ -730,16 +729,279 @@ class LoadAgentWrapper(JaxMARLWrapper):
         return obs, states, rewards, dones, infos
     
 
+# class LoadEvalAgentWrapper(JaxMARLWrapper):
+#     def __init__(self, env: MultiAgentEnv, load_agents: Dict[str, LoadNetworkState]):
+#         super().__init__(env)
+#         self.loaded_agents = ['human']
+#         self.loaded_params = load_agents
+#         # self.agents = [
+#         #     agent for agent in self._env.agents if agent not in self.loaded_agents
+#         # ] # might need to change this to avoid breaking eval 
+#         self.agents = self._env.agents
+#         self.num_agents = len(self.agents)
+#         self.num_loaded_agents = len(self.loaded_agents)
+
+#     @classmethod
+#     def load_from_zoo(
+#         cls,
+#         env: MultiAgentEnv,
+#         zoo: ZooManager | str,
+#         load_agents_uuids: Dict[str, str | list[str]],
+#     ):
+#         """Loads agents from a zoo using ZooManager and groups them by algorithm.
+        
+#         This implementation groups agents into categories based on their algorithm.
+#         """
+#         if isinstance(zoo, str):
+#             zoo = ZooManager(zoo_path=zoo)
+
+#         load_agents: Dict[str, Dict[str, LoadNetworkState]] = {}
+#         for algorithm, agents_dict in load_agents_uuids.items():
+#             if algorithm not in load_agents:
+#                 load_agents[algorithm] = {}
+#             for agent, agent_uuids in agents_dict.items():
+#                 if isinstance(agent_uuids, str):
+#                     # Single agent case.
+#                     zoo_state = zoo.load_agent(agent_uuids)
+#                     load_agents[algorithm][agent] = LoadNetworkState(
+#                         apply_fn=jax.vmap(zoo_state.apply_fn, in_axes=(0, None, None)),
+#                         hstate_reset_fn=zoo_state.hstate_reset_fn,
+#                         params=jax.tree.map(lambda x: jnp.expand_dims(x, 0), zoo_state.params),
+#                         pop_size=1,
+#                     )
+#                 else:
+#                     # Multiple agents: load each zoo_state.
+#                     zoo_states = [zoo.load_agent(agent_uuid) for agent_uuid in agent_uuids]
+
+#                     # Group the zoo states by their parameter shapes.
+#                     shape_groups = {}
+#                     for agent_uuid, zs in zip(agent_uuids, zoo_states):
+#                         flat_shapes, _ = jax.tree_util.tree_flatten(_tree_shape(zs.params))
+#                         shape_key = tuple(flat_shapes)
+#                         shape_groups.setdefault(shape_key, []).append(agent_uuid)
+                    
+#                     if len(shape_groups) > 1:
+#                         raise ValueError(
+#                             f"Mismatching parameter shapes for agent '{agent}' under algorithm '{algorithm}'.\n"
+#                             f"Groups by shape signature (each key is a tuple of shapes): {shape_groups}"
+#                         )
+                    
+#                     load_agents[algorithm][agent] = LoadNetworkState(
+#                         apply_fn=jax.vmap(zoo_states[0].apply_fn, in_axes=(0, None, None)),
+#                         hstate_reset_fn=zoo_states[0].hstate_reset_fn,
+#                         params=_stack_tree([zs.params for zs in zoo_states]),
+#                         pop_size=len(zoo_states),
+#                     )
+#         return cls(env, load_agents)
+    
+#     def take_internal_action(
+#         self,
+#         key: chex.PRNGKey,
+#         obs: Dict[str, chex.Array],
+#         dones: Dict[str, bool],
+#         avail_actions: Dict[str, chex.Array],
+#         hstate: Dict[str, Dict[str, chex.Array]],
+#     ) -> Tuple[Dict[str, chex.Array], Dict[str, chex.Array]]:
+#         """
+#         Compute the action taken by each of the loaded agents and update the corresponding hidden state.
+#         Actions from each algorithm are concatenated along the population dimension.
+#         """
+#         temp_actions = {}  # keys: agent, values: list of action arrays
+#         hstates = {}       # keys: algorithm, values: {agent: new hstate}
+
+#         # Iterate over each algorithm group.
+#         for algorithm, agents_dict in self.loaded_params.items():
+#             temp_hstates = {}
+#             for agent, train_state in agents_dict.items():
+#                 key, subkey = jax.random.split(key)
+#                 network_out = train_state.apply_fn(
+#                     train_state.params,
+#                     hstate[algorithm][agent],
+#                     (obs[agent], dones[agent], avail_actions[agent])
+#                 )
+#                 pi = distrax.MultivariateNormalDiag(*network_out.pi)
+#                 action = pi.sample(seed=subkey)
+                
+#                 if agent not in temp_actions:
+#                     temp_actions[agent] = []
+#                 temp_actions[agent].append(action)
+#                 temp_hstates[agent] = network_out.hstate
+            
+#             hstates[algorithm] = temp_hstates
+        
+#         # Concatenate actions for each agent across all algorithm groups.
+#         final_actions = {
+#             agent: jnp.concatenate(actions, axis=0) for agent, actions in temp_actions.items()
+#         }
+#         return final_actions, hstates
+
+#     def reset_internal_hstates(self, key: chex.PRNGKey) -> Dict[str, chex.Array]:
+#         """Reset the hidden states for each of the loaded agents."""
+#         hstates = {}
+#         for algorithm, agents_dict in self.loaded_params.items():
+#             hstates[algorithm] = {
+#                 agent: train_state.hstate_reset_fn(_key)
+#                 for _key, (agent, train_state) in zip(
+#                     jax.random.split(key, self.num_loaded_agents), agents_dict.items()
+#                 )
+#             }
+#         return hstates
+
+#     def reset_agent_index(
+#         self, current_indices: Optional[Dict[str, int]] = None
+#     ) -> Dict[str, int]:
+#         """
+#         Instead of sampling a random index for each loaded agent, cycle through all agents.
+        
+#         For each loaded agent (e.g. "human"), we determine the total population across algorithms.
+#         If no previous index is provided, we initialize to 0. Otherwise, we increment the previous
+#         index (modulo the total population size) so that every agent in the population is eventually used.
+#         """
+#         # First, compute the total population size for each agent.
+#         combined_pop = {}
+#         for algo, agents in self.loaded_params.items():
+#             for agent, train_state in agents.items():
+#                 pop = train_state.pop_size 
+#                 combined_pop[agent] = combined_pop.get(agent, 0) + pop
+
+#         new_indices = {}
+#         for agent, total_pop in combined_pop.items():
+#             if current_indices is None or agent not in current_indices:
+#                 new_indices[agent] = 0
+#             else:
+#                 new_indices[agent] = (current_indices[agent] + 1) % total_pop
+#         return new_indices
+
+#     def reset(self, key: chex.PRNGKey) -> Tuple[Dict[str, chex.Array], LoadAgentState]:
+#         """
+#         Reset the environment and initialize the loaded agent state.
+        
+#         Instead of randomly selecting a loaded agent, we initialize the agent index to 0.
+#         """
+#         key_env, key_hstate, key_action = jax.random.split(key, 3)
+#         obs, state = self._env.reset(key_env)
+#         dones = {agent: False for agent in self.loaded_agents}
+#         avail_actions = self._env.get_avail_actions(state)
+#         hstate = self.reset_internal_hstates(key_hstate)
+
+#         load_agent_actions, hstate = self.take_internal_action(
+#             key_action, obs, dones, avail_actions, hstate
+#         )
+#         # Initialize indices deterministically (starting at 0).
+#         ag_idx = self.reset_agent_index()
+#         breakpoint()
+#         load_agent_actions = jax.tree.map(lambda i, a: a[i], ag_idx, load_agent_actions)
+#         state = LoadAgentState(
+#             _state=state,
+#             load_agent_actions=load_agent_actions,
+#             hstate=hstate,
+#             ag_idx=ag_idx,
+#         )
+#         return obs, state
+
+#     def step(
+#         self,
+#         key: chex.PRNGKey,
+#         state: LoadAgentState,
+#         actions: Dict[str, chex.Array],
+#         reset_state: Optional[LoadAgentState] = None,
+#     ):
+#         """Perform a step transition in the environment, cycling the loaded agent index on reset."""
+#         key_step, key_reset, key_action = jax.random.split(key, 3)
+#         actions = {**state.load_agent_actions, **actions}
+
+#         obs_st, states_st, rewards, dones, infos = self._env.step_env(
+#             key_step, state._state, actions
+#         )
+#         if reset_state is None:
+#             obs_re, states_re = self._env.reset(key_reset)
+#             # Cycle to the next loaded agent index instead of passing in random key (based on the current index.)
+#             ag_idx_re = self.reset_agent_index(state.ag_idx)
+#         else:
+#             states_re = reset_state
+#             obs_re = self.get_obs(states_re)
+#             ag_idx_re = reset_state.ag_idx
+
+#         # Auto-reset environment based on termination.
+#         states = jax.tree.map(
+#             lambda x, y: jax.lax.select(dones["__all__"], x, y), states_re, states_st,
+#         )
+#         obs = jax.tree.map(
+#             lambda x, y: jax.lax.select(dones["__all__"], x, y), obs_re, obs_st
+#         )
+#         ag_idx = jax.tree.map(
+#             lambda x, y: jax.lax.select(dones["__all__"], x, y), ag_idx_re, state.ag_idx
+#         )
+
+#         avail_actions = self._env.get_avail_actions(state)
+#         load_agent_actions, load_agent_hstate = self.take_internal_action(
+#             key_action, obs, dones, avail_actions, state.hstate,
+#         )
+#         load_agent_actions = jax.tree.map(lambda i, a: a[i], ag_idx, load_agent_actions)
+#         states = LoadAgentState(
+#             _state=states,
+#             load_agent_actions=load_agent_actions,
+#             hstate=load_agent_hstate,
+#             ag_idx=ag_idx,
+#         )
+
+#         return obs, states, rewards, dones, infos
+
 class LoadEvalAgentWrapper(JaxMARLWrapper):
-    def __init__(self, env: MultiAgentEnv, load_agents: Dict[str, LoadNetworkState]):
+    def __init__(self, env: MultiAgentEnv, load_agents: Dict[str, LoadNetworkState], agent_uuids_map=None):
         super().__init__(env)
         self.loaded_agents = ['human']
         self.loaded_params = load_agents
-        self.agents = [
-            agent for agent in self._env.agents if agent not in self.loaded_agents
-        ]
+        # self.agents = [
+        #     agent for agent in self._env.agents if agent not in self.loaded_agents
+        # ] # might need to change this to avoid breaking eval 
+        self.agents = self._env.agents
         self.num_agents = len(self.agents)
         self.num_loaded_agents = len(self.loaded_agents)
+        
+        # Store the mapping of agent UUIDs
+        self.agent_uuids_map = agent_uuids_map or {}
+        
+        # Precompute index-to-UUID mapping for efficiency
+        self.idx_to_uuid = self._precompute_idx_to_uuid_mapping()
+
+    def _precompute_idx_to_uuid_mapping(self):
+        """
+        Precompute a flat mapping from global indices to UUIDs for efficient lookups.
+        Returns a nested dictionary: {agent_type: {global_idx: uuid}}
+        """
+        mapping = {}
+        
+        for agent_type in self.loaded_agents:
+            mapping[agent_type] = {}
+            running_idx = 0
+            
+            for algo, agents_dict in self.loaded_params.items():
+                if agent_type in agents_dict and agent_type in self.agent_uuids_map.get(algo, {}):
+                    uuids = self.agent_uuids_map[algo][agent_type]
+                    pop_size = len(uuids)
+                    
+                    # Map each global index to its corresponding UUID
+                    for local_idx in range(pop_size):
+                        mapping[agent_type][running_idx + local_idx] = uuids[local_idx]
+                    
+                    running_idx += pop_size
+        
+        return mapping
+
+    def get_agent_uuid_from_idx(self, ag_idx):
+        """
+        Efficient lookup of agent UUIDs based on precomputed mapping.
+        """
+        active_uuids = {}
+        
+        for agent_type, global_idx in ag_idx.items():
+            if agent_type in self.idx_to_uuid and global_idx in self.idx_to_uuid[agent_type]:
+                active_uuids[agent_type] = self.idx_to_uuid[agent_type][global_idx]
+            else:
+                active_uuids[agent_type] = "unknown"
+        
+        return active_uuids
 
     @classmethod
     def load_from_zoo(
@@ -748,17 +1010,20 @@ class LoadEvalAgentWrapper(JaxMARLWrapper):
         zoo: ZooManager | str,
         load_agents_uuids: Dict[str, str | list[str]],
     ):
-        """Loads agents from a zoo using ZooManager and groups them by algorithm.
-        
-        This implementation groups agents into categories based on their algorithm.
-        """
+        """Loads agents from a zoo using ZooManager and groups them by algorithm."""
         if isinstance(zoo, str):
             zoo = ZooManager(zoo_path=zoo)
 
         load_agents: Dict[str, Dict[str, LoadNetworkState]] = {}
+        # Create a map to store UUIDs by algorithm and agent type
+        agent_uuids_map: Dict[str, Dict[str, List[str]]] = {}
+        
         for algorithm, agents_dict in load_agents_uuids.items():
             if algorithm not in load_agents:
                 load_agents[algorithm] = {}
+            if algorithm not in agent_uuids_map:
+                agent_uuids_map[algorithm] = {}
+                
             for agent, agent_uuids in agents_dict.items():
                 if isinstance(agent_uuids, str):
                     # Single agent case.
@@ -769,6 +1034,8 @@ class LoadEvalAgentWrapper(JaxMARLWrapper):
                         params=jax.tree.map(lambda x: jnp.expand_dims(x, 0), zoo_state.params),
                         pop_size=1,
                     )
+                    # Store the UUID
+                    agent_uuids_map[algorithm][agent] = [agent_uuids]
                 else:
                     # Multiple agents: load each zoo_state.
                     zoo_states = [zoo.load_agent(agent_uuid) for agent_uuid in agent_uuids]
@@ -792,7 +1059,9 @@ class LoadEvalAgentWrapper(JaxMARLWrapper):
                         params=_stack_tree([zs.params for zs in zoo_states]),
                         pop_size=len(zoo_states),
                     )
-        return cls(env, load_agents)
+                    # Store the UUIDs
+                    agent_uuids_map[algorithm][agent] = agent_uuids
+        return cls(env, load_agents, agent_uuids_map)
     
     def take_internal_action(
         self,
@@ -889,6 +1158,9 @@ class LoadEvalAgentWrapper(JaxMARLWrapper):
         )
         # Initialize indices deterministically (starting at 0).
         ag_idx = self.reset_agent_index()
+        
+        # The breakpoint is preserved from original code
+        breakpoint()
         load_agent_actions = jax.tree.map(lambda i, a: a[i], ag_idx, load_agent_actions)
         state = LoadAgentState(
             _state=state,
@@ -912,6 +1184,12 @@ class LoadEvalAgentWrapper(JaxMARLWrapper):
         obs_st, states_st, rewards, dones, infos = self._env.step_env(
             key_step, state._state, actions
         )
+        
+        # Always compute UUIDs directly from the current agent index
+        # This avoids JAX tracing errors from conditionals
+        agent_uuids = self.get_agent_uuid_from_idx(state.ag_idx)
+        infos = {**infos, "agent_uuids": agent_uuids}
+        
         if reset_state is None:
             obs_re, states_re = self._env.reset(key_reset)
             # Cycle to the next loaded agent index instead of passing in random key (based on the current index.)
@@ -945,4 +1223,3 @@ class LoadEvalAgentWrapper(JaxMARLWrapper):
         )
 
         return obs, states, rewards, dones, infos
-

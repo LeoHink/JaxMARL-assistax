@@ -15,9 +15,9 @@ ENV_KWARGS:
 TOTAL_TIMESTEPS: 30e6
 NUM_STEPS: 256
 NUM_ENVS: 1048
-NUM_SEEDS: 2
+NUM_SEEDS: 4
 SEED: 0
-NUM_EVAL_EPISODES: 32
+NUM_EVAL_EPISODES: 2
 
 # RL HYPERPARAMETERS
 UPDATE_EPOCHS: 4
@@ -42,8 +42,10 @@ DEVICE: 0
 
 # EVAL TRAIN STATE
 eval:
-  path: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/bedbathing/2025-01-23/16-18-59/all_params.safetensors
-
+  path:
+    human: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/scratchitch/2025-01-17/18-20-07/human.safetensors 
+    robot: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/scratchitch/2025-01-17/18-20-07robot.safetensors
+    all: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/scratchitch/2025-01-17/18-20-07/all_params.safetensors 
 # SWEEPER SETTINGS
 sweep:
   num_configs: 4

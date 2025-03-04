@@ -178,9 +178,9 @@ def make_train(config, save_train_state=False, load_zoo=False):
         config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     )
     
-    config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
-    config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
-    config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))
+    config["OBS_DIM"] = int(get_space_dim(env.observation_space(env.agents[0])))
+    config["ACT_DIM"] = int(get_space_dim(env.action_space(env.agents[0])))
+    config["GOBS_DIM"] = int(get_space_dim(env.observation_space("global")))
     env = LogWrapper(env, replace_info=True)
 
     def linear_schedule(initial_lr):
@@ -559,95 +559,110 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
     else:
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
-    config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
-    config["GOBS_DIM"] = get_space_dim(env.observation_space("global"))
+    config["OBS_DIM"] = int(get_space_dim(env.observation_space(env.agents[0])))
+    config["ACT_DIM"] = int(get_space_dim(env.action_space(env.agents[0])))
+    config["GOBS_DIM"] = int(get_space_dim(env.observation_space("global")))
     env = LogWrapper(env, replace_info=True)
     max_steps = env.episode_length
 
-    def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig()):
-        rng_reset, rng_env = jax.random.split(rng)
-        rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
-        obsv, env_state = jax.vmap(env.reset)(rngs_reset)
-        init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
+    def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig(), num_episodes=1):
+        
+        def _run_episode(episode_rng):
+            
+            rng_reset, rng_env = jax.random.split(episode_rng)
+            rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
+            obsv, env_state = jax.vmap(env.reset)(rngs_reset)
+            init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
 
-        runner_state = RunnerState(
-            train_state=train_state,
-            env_state=env_state,
-            last_obs=obsv,
-            last_done=init_dones,
-            update_step=0,
-            rng=rng_env,
-        )
-        def _env_step(runner_state, unused):
-            rng = runner_state.rng
-            obs_batch = batchify(runner_state.last_obs, env.agents)
-            avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
-            avail_actions = jax.lax.stop_gradient(
-                batchify(avail_actions, env.agents)
-            )
-            actor_in = (
-                obs_batch,
-                runner_state.last_done,
-                avail_actions
-            )
-
-            # SELECT ACTION
-            actor_mean, actor_std = runner_state.train_state.actor.apply_fn(
-                runner_state.train_state.actor.params,
-                actor_in,
-            )
-            actor_std = jnp.expand_dims(actor_std, axis=1)
-            pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
-            rng, act_rng = jax.random.split(rng)
-            action, log_prob = pi.sample_and_log_prob(seed=act_rng)
-            env_act = unbatchify(action, env.agents)
-
-            # COMPUTE VALUE
-            if config["eval"]["compute_value"]:
-                critic_in = runner_state.last_obs["global"]
-                value = runner_state.train_state.critic.apply_fn(
-                    runner_state.train_state.critic.params,
-                    critic_in,
-                )
-                value = jnp.broadcast_to(value, (env.num_agents, *value.shape))
-            else:
-                value = None
-
-            # STEP ENV
-            rng, _rng = jax.random.split(rng)
-            rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
-            obsv, env_state, reward, done, info = jax.vmap(env.step)(
-                rng_step, runner_state.env_state, env_act,
-            )
-            done_batch = batchify(done, env.agents)
-            info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
-            eval_info = EvalInfo(
-                env_state=(env_state if log_eval_info.env_state else None),
-                done=(done if log_eval_info.done else None),
-                action=(action if log_eval_info.action else None),
-                value=(value if log_eval_info.value else None),
-                reward=(reward if log_eval_info.reward else None),
-                log_prob=(log_prob if log_eval_info.log_prob else None),
-                obs=(obs_batch if log_eval_info.obs else None),
-                info=(info if log_eval_info.info else None),
-                avail_actions=(avail_actions if log_eval_info.avail_actions else None),
-            )
             runner_state = RunnerState(
-                train_state=runner_state.train_state,
+                train_state=train_state,
                 env_state=env_state,
                 last_obs=obsv,
-                last_done=done_batch,
-                update_step=runner_state.update_step,
-                rng=rng,
+                last_done=init_dones,
+                update_step=0,
+                rng=rng_env,
             )
-            return runner_state, eval_info
 
-        _, eval_info = jax.lax.scan(
-            _env_step, runner_state, None, max_steps
+            def _env_step(runner_state, unused):
+                rng = runner_state.rng
+                obs_batch = batchify(runner_state.last_obs, env.agents)
+                avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
+                avail_actions = jax.lax.stop_gradient(
+                    batchify(avail_actions, env.agents)
+                )
+                actor_in = (
+                    obs_batch,
+                    runner_state.last_done,
+                    avail_actions
+                )
+
+                # SELECT ACTION
+
+                actor_mean, actor_std = runner_state.train_state.apply_fn(
+                    runner_state.train_state.params, # changed from runner_state.train_state.actor.params for crossplay incase this breaks somewhere else
+                    actor_in,
+                    )  
+
+                actor_std = jnp.expand_dims(actor_std, axis=1)
+                pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+                rng, act_rng = jax.random.split(rng)
+                action, log_prob = pi.sample_and_log_prob(seed=act_rng)
+                env_act = unbatchify(action, env.agents)
+
+                # COMPUTE VALUE
+                if config["eval"]["compute_value"]:
+                    critic_in = runner_state.last_obs["global"]
+                    value = runner_state.train_state.critic.apply_fn(
+                        runner_state.train_state.critic.params,
+                        critic_in,
+                    )
+                    value = jnp.broadcast_to(value, (env.num_agents, *value.shape))
+                else:
+                    value = None
+
+                # STEP ENV
+                rng, _rng = jax.random.split(rng)
+                rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
+                obsv, env_state, reward, done, info = jax.vmap(env.step)(
+                    rng_step, runner_state.env_state, env_act,
+                )
+                done_batch = batchify(done, env.agents)
+                info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
+                eval_info = EvalInfo(
+                    env_state=(env_state if log_eval_info.env_state else None),
+                    done=(done if log_eval_info.done else None),
+                    action=(action if log_eval_info.action else None),
+                    value=(value if log_eval_info.value else None),
+                    reward=(reward if log_eval_info.reward else None),
+                    log_prob=(log_prob if log_eval_info.log_prob else None),
+                    obs=(obs_batch if log_eval_info.obs else None),
+                    info=(info if log_eval_info.info else None),
+                    avail_actions=(avail_actions if log_eval_info.avail_actions else None),
+                )
+                runner_state = RunnerState(
+                    train_state=runner_state.train_state,
+                    env_state=env_state,
+                    last_obs=obsv,
+                    last_done=done_batch,
+                    update_step=runner_state.update_step,
+                    rng=rng,
+                )
+                return runner_state, eval_info
+
+            _, episode_eval_info = jax.lax.scan(
+                _env_step, runner_state, None, max_steps
+            )
+
+            return episode_eval_info
+        
+        _, all_episode_eval_infos = jax.lax.scan(
+            lambda carry, rng: (carry, _run_episode(rng)),
+            None,
+            rng # consider renaming rng for more obvious name
         )
 
-        return eval_info
+        return all_episode_eval_infos
+
     return env, run_evaluation
 
 @hydra.main(version_base=None, config_path="config", config_name="mappo_mabrax")

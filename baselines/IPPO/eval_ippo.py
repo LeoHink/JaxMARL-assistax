@@ -111,7 +111,7 @@ def main(config):
     rng = jax.random.PRNGKey(config["SEED"])
     rng, eval_rng = jax.random.split(rng)
     with jax.disable_jit(config["DISABLE_JIT"]):
-        all_train_states = unflatten_dict(safetensors.flax.load_file(config["eval"]["path"]), sep='/')
+        all_train_states = unflatten_dict(safetensors.flax.load_file(config["eval"]["path"]['all']), sep='/')
         batch_dims = jax.tree.leaves(_tree_shape(all_train_states["params"]))[:2]
         n_sequential_evals = int(jnp.ceil(
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
@@ -144,6 +144,7 @@ def main(config):
         )
         network = NetworkArch(config=config)
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
+        breakpoint()
         def eval_mem_efficient():
             eval_network_state = EvalNetworkState(apply_fn=network.apply, params=all_train_states)
             split_trainstate = _flatten_and_split_trainstate(eval_network_state)

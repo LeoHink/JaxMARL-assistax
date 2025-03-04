@@ -82,7 +82,9 @@ crossplay:
     agent_1: /path/to/agent_1.safetensors
 
 eval: # path to actor all params for eval
-  path: /home/leo/assistax/JaxMARL/baselines/MASAC/outputs/mabrax/scratchitch/2025-01-16/11-52-11/actor_all_params.safetensors
+  path:
+    human: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/armmanipulation/2025-02-05/15-08-46/r1.0_s1.0_t0.0_0/human.safetensors
+    robot: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/armmanipulation/2025-02-05/15-08-46/r1.0_s1.0_t0.0_0/robot.safetensors
 
 hydra:
   job:
