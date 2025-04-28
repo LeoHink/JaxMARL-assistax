@@ -20,11 +20,11 @@ import numpy as np
 import jaxmarl
 # from jaxmarl.distributions.tanh_distribution import TanhTransformedDistribution # try new distribution
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
-from jaxmarl.wrappers.baselines import LogWrapper
+from jaxmarl.wrappers.baselines import LogWrapper, LogCrossplayWrapper
 from jaxmarl.wrappers.aht_all import ZooManager, LoadAgentWrapper, LoadEvalAgentWrapper
 import hydra
 from omegaconf import OmegaConf
-from typing import Sequence, NamedTuple, TypeAlias, Any, Dict
+from typing import Sequence, NamedTuple, TypeAlias, Any, Dict, Optional
 import os
 import functools
 from functools import partial
@@ -200,7 +200,6 @@ class SACTrainStates(NamedTuple):
     log_alpha: jnp.ndarray
     alpha_opt_state: optax.OptState
 
-
 BufferState: TypeAlias = TrajectoryBufferState[Transition]
 
 class RunnerState(NamedTuple):
@@ -214,6 +213,7 @@ class RunnerState(NamedTuple):
     total_env_steps: int  # Add this
     total_grad_updates: int # Add this
     update_t: int
+    ag_idx: Optional[int] = None
 
 class EvalState(NamedTuple):
     train_states: SACTrainStates
@@ -222,6 +222,7 @@ class EvalState(NamedTuple):
     last_done: jnp.ndarray
     update_step: int
     rng: jnp.ndarray
+    ag_idx: Optional[int] = None
 
 class EvalInfo(NamedTuple):
     env_state: LogEnvState
@@ -232,6 +233,7 @@ class EvalInfo(NamedTuple):
     obs: jnp.ndarray
     info: jnp.ndarray
     avail_actions: jnp.ndarray
+    ag_idx: Optional[jnp.ndarray]
 
 # TODO: add eval info log config to determine what to log for evaluation (improve the memroy efficienty)
 
@@ -871,99 +873,172 @@ def make_train(config, save_train_state=True, load_zoo=False):
     
     return train
 
+# def make_evaluation(config, load_zoo=False, crossplay=False):
+#     if load_zoo:
+#         zoo = ZooManager(config["ZOO_PATH"])
+#         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+#         if crossplay:
+#             env = LoadEvalAgentWrapper.load_from_zoo(env, zoo, load_zoo, crossplay)
+#         else:
+#             env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
+#     else:
+#         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
+#     config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
+#     config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
+#     env = LogWrapper(env, replace_info=True)
+#     max_steps = env.episode_length
+#     tanh_bijector = distrax.Block(distrax.Tanh(), ndims=1)
+#     det_eval = config["DETERMINISTIC_EVAL"]
+
 def make_evaluation(config, load_zoo=False, crossplay=False):
     if load_zoo:
         zoo = ZooManager(config["ZOO_PATH"])
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
         if crossplay:
-            env = LoadEvalAgentWrapper.load_from_zoo(env, zoo, load_zoo, crossplay)
+            env = LoadEvalAgentWrapper.load_from_zoo(env, zoo, load_zoo)
         else:
             env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
     else:
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    config["OBS_DIM"] = get_space_dim(env.observation_space(env.agents[0]))
-    config["ACT_DIM"] = get_space_dim(env.action_space(env.agents[0]))
-    env = LogWrapper(env, replace_info=True)
+    config["OBS_DIM"] = int(get_space_dim(env.observation_space(env.agents[0])))
+    config["ACT_DIM"] = int(get_space_dim(env.action_space(env.agents[0])))
+    if crossplay:
+        env = LogCrossplayWrapper(env, replace_info=True, crossplay_info=crossplay) # this is stupid we do not need crossplay infor to be determined by crossplay
+    else:
+        env = LogWrapper(env, replace_info=True)
     max_steps = env.episode_length
     tanh_bijector = distrax.Block(distrax.Tanh(), ndims=1)
     det_eval = config["DETERMINISTIC_EVAL"]
 
-    def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig()):
-        rng_reset, rng_env = jax.random.split(rng)
+    def run_evaluation(rngs, train_state, log_eval_info=EvalInfoLogConfig()):
+        
+        rng_reset, rng_env = jax.random.split(rngs[0])
         rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
-        obsv, env_state = jax.vmap(env.reset)(rngs_reset)
+        # obsv, env_state = jax.vmap(env.reset)(rngs_reset)
         init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
-
-        runner_state = EvalState(
-            train_states=train_state,
-            env_state=env_state,
-            last_obs=obsv,
-            last_done=init_dones,
-            update_step=0,
-            rng=rng_env,
-        )
-        def _env_step(runner_state, unused):
-
-            rng = runner_state.rng
-            obs_batch = batchify(runner_state.last_obs, env.agents)
-            avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
-            avail_actions = jax.lax.stop_gradient(
-                batchify(avail_actions, env.agents)
+        if crossplay:
+            init_obsv, init_env_state = jax.vmap(env.reset, in_axes=(0, None))(rngs_reset, None)
+            init_runner_state = EvalState(
+                train_states=train_state,
+                env_state=init_env_state,
+                last_obs=init_obsv,
+                last_done=init_dones,
+                update_step=0,
+                rng=rng_env,
+                ag_idx=init_env_state.env_state.ag_idx
             )
-            ac_in = (obs_batch, runner_state.last_done, avail_actions)
 
-            rng, action_rng = jax.random.split(rng)
-            (actor_mean, actor_std) = runner_state.train_states.apply_fn(
-                runner_state.train_states.params, 
-                ac_in
+        else:
+            init_obsv, init_env_state = jax.vmap(env.reset)(rngs_reset)
+            init_runner_state = EvalState(
+                train_states=train_state,
+                env_state=init_env_state,
+                last_obs=init_obsv,
+                last_done=init_dones,
+                update_step=0,
+                rng=rng_env,
+            )
+        
+        def _run_episode(runner_state, episode_rng):
+
+            rng_reset, rng_env = jax.random.split(episode_rng)
+            rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
+            init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
+            if crossplay:
+                obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(rngs_reset, runner_state.ag_idx)
+                runner_state = EvalState(
+                    train_states=runner_state.train_states,
+                    env_state=env_state,
+                    last_obs=obsv,
+                    last_done=init_dones,
+                    update_step=runner_state.update_step,
+                    rng=rng_env,
+                    ag_idx=env_state.env_state.ag_idx
                 )
-            # SELECT ACTION
-            if det_eval:
-                action = jnp.tanh(actor_mean)
-            
             else:
-                pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
- 
-                pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+                obsv, env_state = jax.vmap(env.reset)(rngs_reset)
+                runner_state = RunnerState(
+                    train_states=runner_state.train_states,
+                    env_state=env_state,
+                    last_obs=obsv,
+                    last_done=init_dones,
+                    update_step=runner_state.update_step,
+                    rng=rng_env,
+                ) 
 
-                action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
 
-            env_act = unbatchify(action, env.agents)
+            def _env_step(runner_state, unused):
 
-            #STEP ENV
-            rng, _rng = jax.random.split(rng)
-            rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
-            obsv, env_state, reward, done, info = jax.vmap(env.step)(
-                rng_step, runner_state.env_state, env_act,
+                rng = runner_state.rng
+                obs_batch = batchify(runner_state.last_obs, env.agents)
+                avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
+                avail_actions = jax.lax.stop_gradient(
+                    batchify(avail_actions, env.agents)
+                )
+                ac_in = (obs_batch, runner_state.last_done, avail_actions)
+
+                rng, action_rng = jax.random.split(rng)
+                (actor_mean, actor_std) = runner_state.train_states.apply_fn(
+                    runner_state.train_states.params, 
+                    ac_in
+                    )
+                # SELECT ACTION
+                if det_eval:
+                    action = jnp.tanh(actor_mean)
+                
+                else:
+                    pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
+    
+                    pi_tanh = distrax.Transformed(pi, bijector=tanh_bijector)
+
+                    action, log_prob = pi_tanh.sample_and_log_prob(seed=action_rng)
+
+                env_act = unbatchify(action, env.agents)
+
+                #STEP ENV
+                rng, _rng = jax.random.split(rng)
+                rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
+                obsv, env_state, reward, done, info = jax.vmap(env.step)(
+                    rng_step, runner_state.env_state, env_act,
+                )
+                done_batch = batchify(done, env.agents)
+                info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
+                            
+                eval_info = EvalInfo(
+                    env_state=(env_state if log_eval_info.env_state else None),
+                    done=(done if log_eval_info.done else None),
+                    action=(action if log_eval_info.action else None),
+                    reward=(reward if log_eval_info.reward else None),
+                    log_prob=(log_prob if log_eval_info.log_prob else None),
+                    obs=(obs_batch if log_eval_info.obs else None),
+                    info=(info if log_eval_info.info else None),
+                    avail_actions=(avail_actions if log_eval_info.avail_actions else None),
+                    ag_idx=(runner_state.ag_idx if crossplay else None),
+                )
+                runner_state = EvalState(
+                    train_states=runner_state.train_states,
+                    env_state=env_state,
+                    last_obs=obsv,
+                    last_done=done_batch,
+                    update_step=runner_state.update_step,
+                    rng=rng,
+                    ag_idx=(runner_state.ag_idx if crossplay else None),
+                )
+
+                return runner_state, eval_info
+            
+            runner_state, episode_eval_info = jax.lax.scan(
+                _env_step, runner_state, None, max_steps
             )
-            done_batch = batchify(done, env.agents)
-            info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
-                        
-            eval_info = EvalInfo(
-                env_state=(env_state if log_eval_info.env_state else None),
-                done=(done if log_eval_info.done else None),
-                action=(action if log_eval_info.action else None),
-                reward=(reward if log_eval_info.reward else None),
-                log_prob=(log_prob if log_eval_info.log_prob else None),
-                obs=(obs_batch if log_eval_info.obs else None),
-                info=(info if log_eval_info.info else None),
-                avail_actions=(avail_actions if log_eval_info.avail_actions else None),
-            )
-            runner_state = EvalState(
-                train_states=runner_state.train_states,
-                env_state=env_state,
-                last_obs=obsv,
-                last_done=done_batch,
-                update_step=runner_state.update_step,
-                rng=rng,
-            )
-            return runner_state, eval_info
 
-        _, eval_info = jax.lax.scan(
-            _env_step, runner_state, None, max_steps
+            return runner_state, episode_eval_info
+        
+        runner_state, all_episode_eval_infos = jax.lax.scan(
+            _run_episode, init_runner_state, rngs
         )
 
-        return eval_info
+        return all_episode_eval_infos
+    
     return env, run_evaluation
 
 @hydra.main(version_base=None, config_path="config", config_name="masac_mabrax")

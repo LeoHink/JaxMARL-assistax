@@ -472,7 +472,7 @@ class ZooManager:
 
 
 class LoadAgentWrapper(JaxMARLWrapper):
-    def __init__(self, env: MultiAgentEnv, load_agents: Dict[str, LoadNetworkState]):
+    def __init__(self, env: MultiAgentEnv, load_agents: Dict[str, Dict[str, LoadNetworkState]]):
         super().__init__(env)
         self.loaded_agents = list(load_agents.keys())
         self.loaded_params = load_agents
@@ -573,6 +573,7 @@ class LoadAgentWrapper(JaxMARLWrapper):
         load_agent_actions, hstate = self.take_internal_action(
             key_action, obs, dones, avail_actions, hstate
         )
+        breakpoint()
         ag_idx = self.reset_agent_index(key_ag_idx)
         load_agent_actions = jax.tree.map(lambda i, a: a[i], ag_idx, load_agent_actions)
         state = LoadAgentState(
@@ -588,7 +589,7 @@ class LoadAgentWrapper(JaxMARLWrapper):
         key: chex.PRNGKey,
         state: LoadAgentState,
         actions: Dict[str, chex.Array],
-        reset_state: Optional[LoadAgentState]=None,
+        reset_state: Optional[LoadAgentState]=None, # I have a feeling this is not used currently but is useful if we have a stopping criteria
     ):
         """Performs step transitions in the environment."""
 

@@ -15,7 +15,7 @@ import distrax
 import jaxmarl
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
 from jaxmarl.wrappers.baselines import LogWrapper
-from jaxmarl.wrappers.aht import ZooManager, LoadAgentWrapper
+from jaxmarl.wrappers.aht_all import ZooManager, LoadAgentWrapper, extract_uuids_from_eval_results
 import hydra
 from omegaconf import OmegaConf
 import pandas as pd
@@ -116,248 +116,6 @@ def load_and_merge_algo_config(alg_config: dict):
     # OmegaConf.merge will combine them.
     merged_cfg = OmegaConf.merge(main_cfg, OmegaConf.create({"network": network_cfg}))
     return merged_cfg
-
-
-# @hydra.main(version_base=None, config_path="crossplay_config", config_name="crossplay_zoo")
-# def main(config):
-#     config = OmegaConf.to_container(config, resolve=True)
-
-#     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
-    
-#     # Dictionary to hold functions per algorithm (this is disgusting so needs to be refactored)
-#     alg_funcs = {}
-
-#     if "IPPO" in config["crossplay"]["robot_algos"]:
-#         match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
-#             case (False, False):
-#                 from IPPO.ippo_ff_nps_mabrax import (
-#                     make_train as ippo_make_train,
-#                     make_evaluation as ippo_make_evaluation,
-#                     EvalInfoLogConfig as ippo_EvalInfoLogConfig,
-#                     MultiActorCritic as ippo_NetworkArch,
-#                 )
-#                 alg_funcs["IPPO"] = {
-#                     "make_train": ippo_make_train,
-#                     "make_evaluation": ippo_make_evaluation,
-#                     "EvalInfoLogConfig": ippo_EvalInfoLogConfig,
-#                     "NetworkArch": ippo_NetworkArch,
-#                 }
-#             case (False, True):
-#                 from IPPO.ippo_ff_ps_mabrax import (
-#                     make_train as ippo_make_train,
-#                     make_evaluation as ippo_make_evaluation,
-#                     EvalInfoLogConfig as ippo_EvalInfoLogConfig,
-#                     ActorCritic as ippo_NetworkArch,
-#                 )
-#                 alg_funcs["IPPO"] = {
-#                     "make_train": ippo_make_train,
-#                     "make_evaluation": ippo_make_evaluation,
-#                     "EvalInfoLogConfig": ippo_EvalInfoLogConfig,
-#                     "NetworkArch": ippo_NetworkArch,
-#                 }
-#             case (True, False):
-#                 from IPPO.ippo_rnn_nps_mabrax import (
-#                     make_train as ippo_make_train,
-#                     make_evaluation as ippo_make_evaluation,
-#                     EvalInfoLogConfig as ippo_EvalInfoLogConfig,
-#                     MultiActorCriticRNN as ippo_NetworkArch,
-#                 )
-#                 alg_funcs["IPPO"] = {
-#                     "make_train": ippo_make_train,
-#                     "make_evaluation": ippo_make_evaluation,
-#                     "EvalInfoLogConfig": ippo_EvalInfoLogConfig,
-#                     "NetworkArch": ippo_NetworkArch,
-#                 }
-#             case (True, True):
-#                 from IPPO.ippo_rnn_ps_mabrax import (
-#                     make_train as ippo_make_train,
-#                     make_evaluation as ippo_make_evaluation,
-#                     EvalInfoLogConfig as ippo_EvalInfoLogConfig,
-#                     ActorCriticRNN as ippo_NetworkArch,
-#                 )
-#                 alg_funcs["IPPO"] = {
-#                     "make_train": ippo_make_train,
-#                     "make_evaluation": ippo_make_evaluation,
-#                     "EvalInfoLogConfig": ippo_EvalInfoLogConfig,
-#                     "NetworkArch": ippo_NetworkArch,
-#                 }
-#             case _:
-#                 raise Exception("Invalid network configuration for IPPO")
-
-#     if "MAPPO" in config["crossplay"]["robot_algos"]:
-#         match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
-#             case (False, False):
-#                 from MAPPO.mappo_ff_nps_mabrax import (
-#                     make_train as mappo_make_train,
-#                     make_evaluation as mappo_make_evaluation,
-#                     EvalInfoLogConfig as mappo_EvalInfoLogConfig,
-#                     MultiActor as mappo_NetworkArch,
-#                 )
-#                 alg_funcs["MAPPO"] = {
-#                     "make_train": mappo_make_train,
-#                     "make_evaluation": mappo_make_evaluation,
-#                     "EvalInfoLogConfig": mappo_EvalInfoLogConfig,
-#                     "NetworkArch": mappo_NetworkArch,
-#                 }
-#             case (False, True):
-#                 from MAPPO.mappo_ff_ps_mabrax import (
-#                     make_train as mappo_make_train,
-#                     make_evaluation as mappo_make_evaluation,
-#                     EvalInfoLogConfig as mappo_EvalInfoLogConfig,
-#                     Actor as mappo_NetworkArch,
-#                 )
-#                 alg_funcs["MAPPO"] = {
-#                     "make_train": mappo_make_train,
-#                     "make_evaluation": mappo_make_evaluation,
-#                     "EvalInfoLogConfig": mappo_EvalInfoLogConfig,
-#                     "NetworkArch": mappo_NetworkArch,
-#                 }
-#             case (True, False):
-#                 from MAPPO.mappo_rnn_nps_mabrax import (
-#                     make_train as mappo_make_train,
-#                     make_evaluation as mappo_make_evaluation,
-#                     EvalInfoLogConfig as mappo_EvalInfoLogConfig,
-#                     MultiActorRNN as mappo_NetworkArch,
-#                 )
-#                 alg_funcs["MAPPO"] = {
-#                     "make_train": mappo_make_train,
-#                     "make_evaluation": mappo_make_evaluation,
-#                     "EvalInfoLogConfig": mappo_EvalInfoLogConfig,
-#                     "NetworkArch": mappo_NetworkArch,
-#                 }
-#             case (True, True):
-#                 from MAPPO.mappo_rnn_ps_mabrax import (
-#                     make_train as mappo_make_train,
-#                     make_evaluation as mappo_make_evaluation,
-#                     EvalInfoLogConfig as mappo_EvalInfoLogConfig,
-#                     ActorRNN as mappo_NetworkArch,
-#                 )
-#                 alg_funcs["MAPPO"] = {
-#                     "make_train": mappo_make_train,
-#                     "make_evaluation": mappo_make_evaluation,
-#                     "EvalInfoLogConfig": mappo_EvalInfoLogConfig,
-#                     "NetworkArch": mappo_NetworkArch,
-#                 }
-#             case _:
-#                 raise Exception("Invalid network configuration for MAPPO")
-
-#     if "MASAC" in config["crossplay"]["robot_algos"]:
-#         from MASAC.masac_ff_nps_mabrax import (
-#             make_train as masac_make_train,
-#             make_evaluation as masac_make_evaluation,
-#             EvalInfoLogConfig as masac_EvalInfoLogConfig,
-#             MultiSACActor as masac_NetworkArch,
-#         )
-#         alg_funcs["MASAC"] = {
-#             "make_train": masac_make_train,
-#             "make_evaluation": masac_make_evaluation,
-#             "EvalInfoLogConfig": masac_EvalInfoLogConfig,
-#             "NetworkArch": masac_NetworkArch,
-#         }
-
-#     robo_configs = {}
-#     for alg, paths in config["crossplay"]["algo_configs"].items():
-#         robo_configs[alg] = load_and_merge_algo_config(paths)
-
-#     rng = jax.random.PRNGKey(config["SEED"])
-#     rng, eval_rng = jax.random.split(rng)
-
-#     with jax.disable_jit(config["DISABLE_JIT"]):
-#         zoo = ZooManager(config["ZOO_PATH"])
-#         scenario = config["ENV_NAME"]
-
-#         partner_dict = {}
-#         for partner_algo in config["PARTNER_ALGORITHMS"]:
-#             partner_dict[partner_algo] = zoo.index.query(f'algorithm == "{partner_algo}"'
-#                                                          ).query(f'scenario == "{scenario}"'
-#                                                             ).query('scenario_agent_id == "human"')
-            
-#         num_humans = sum(len(x) for x in partner_dict.values())
-
-#         load_zoo_dict = {algo: {"human": list(partner_dict[algo].agent_uuid)} for algo in partner_dict.keys()}
-        
-#         robo_filtered = {}
-#         for alg in config["crossplay"]["robot_algos"]:
-#             robo_filtered[alg] = zoo.index.query(f'algorithm == "{alg}"'
-#                                          ).query(f'scenario == "{scenario}"'
-#                                          ).query('scenario_agent_id == "robot"')
-            
-#         robo_filtered = {alg: df.head(5) for alg, df in robo_filtered.items()}
-        
-#         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-
-#         returns_dict = {}
-        
-#         for alg, robo_agents in robo_filtered.items():
-#             inner_returns_dict = {}
-#             human_uuid = partner_dict[alg].agent_uuid[partner_dict[alg].agent_uuid.keys()[0]] # disgusting hack
-#             for agent_uuid in robo_agents.agent_uuid:
-#                 # human_uuid = partner_dict[alg].agent_uuid[partner_dict["IPPO"].agent_uuid.keys()[0]] # disgusting hack
-#                 agent_params = {'robot': unflatten_dict(
-#                     safetensors.flax.load_file(osp.join(config["ZOO_PATH"], "params", agent_uuid+".safetensors")),
-#                         sep='/'
-#                         ),
-#                         'human': unflatten_dict(
-#                             safetensors.flax.load_file(osp.join(config["ZOO_PATH"], "params", human_uuid+".safetensors")),
-#                             sep='/'
-#                         ) # Hack as these params shouldn't actually be used (will this work though?)
-#                 }
-#                 network = alg_funcs[alg]["NetworkArch"](config=robo_configs[alg])
-#                 spliced_params = jax.tree.map(
-#                         lambda *p: jnp.stack(p, axis=0),
-#                         *(agent_params[a] for a in env.agents)
-#                 )
-
-#                 eval_network_state = EvalNetworkState(
-#                     apply_fn=network.apply,
-#                     params=spliced_params,
-#                 )
-
-#                 # batch_dims = jax.tree.leaves(_tree_shape(eval_network_state.params))[:2]
-#                 # n_sequential_evals = int(jnp.ceil(
-#                 #     config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
-#                 #     / config["GPU_ENV_CAPACITY"]
-#                 # ))
-#                 eval_env, run_eval = alg_funcs[alg]["make_evaluation"](robo_configs[alg], load_zoo=load_zoo_dict, crossplay=True)
-#                 if alg == "MASAC":
-#                     eval_log_config = alg_funcs[alg]["EvalInfoLogConfig"](
-#                         env_state=False,
-#                         done=True,
-#                         action=False,
-#                         reward=True,
-#                         log_prob=False,
-#                         obs=False,
-#                         info=False,
-#                         avail_actions=False,
-#                     )
-#                 else:
-#                     eval_log_config = alg_funcs[alg]["EvalInfoLogConfig"](
-#                         env_state=False,
-#                         done=True,
-#                         action=False,
-#                         value=False,
-#                         reward=True,
-#                         log_prob=False,
-#                         obs=False,
-#                         info=False,
-#                         avail_actions=False,
-#                     )
-#                 eval_jit = jax.jit(
-#                     run_eval,
-#                     static_argnames=["log_eval_info"],
-#                 )
-#                 # eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
-
-#                 evals =  eval_jit(eval_rng, eval_network_state, eval_log_config) # add this , num_episodes=len(robo_agents)
-#                 first_episode_returns = _compute_episode_returns(evals)
-#                 mean_episode_returns = first_episode_returns["__all__"].mean(axis=-1)
-#                 inner_returns_dict[agent_uuid] = mean_episode_returns
-#             returns_dict[alg] = inner_returns_dict
-
-#     breakpoint()
-
-# if __name__ == "__main__":
-#     main()
 
 @hydra.main(version_base=None, config_path="crossplay_config", config_name="crossplay_zoo")
 def main(config):
@@ -513,57 +271,54 @@ def main(config):
         partner_dict = {}
         for partner_algo in config["PARTNER_ALGORITHMS"]:
             partner_dict[partner_algo] = zoo.index.query(f'algorithm == "{partner_algo}"'
-                                                         ).query(f'scenario == "{scenario}"'
-                                                            ).query('scenario_agent_id == "human"')
+                                                        ).query(f'scenario == "{scenario}"'
+                                                        ).query('scenario_agent_id == "human"')
             
         num_humans = sum(len(x) for x in partner_dict.values())
 
         load_zoo_dict = {algo: {"human": list(partner_dict[algo].agent_uuid)} for algo in partner_dict.keys()}
-        
+        breakpoint()
         robo_filtered = {}
         for alg in config["crossplay"]["robot_algos"]:
             robo_filtered[alg] = zoo.index.query(f'algorithm == "{alg}"'
                                          ).query(f'scenario == "{scenario}"'
                                          ).query('scenario_agent_id == "robot"')
             
-        robo_filtered = {alg: df.head(5) for alg, df in robo_filtered.items()}
-        
-        env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-
+        robo_filtered = {alg: df.head(5) for alg, df in robo_filtered.items()} # remove for actual test
         returns_dict = {}
-        # Helper function to create a batch of network states
-        def create_batch_network_states(batch_uuids, human_uuid, network, multi_agent=False):
+        opponent_info_dict = {}
+        # This function actually seems largely obsolute except maybe for batch_uuids
+        def add_batch_dim(x):
+            # Add a leading dimension to the array
+            return jnp.expand_dims(x, axis=0)
+        
+        def create_batch_network_states(batch_uuids, network, multi_agent=False):
             batch_states = []
             for agent_uuid in batch_uuids:
                 # Load parameters for robot and human
-                agent_params = {
-                    'robot': unflatten_dict(
+                agent_params = unflatten_dict(
                         safetensors.flax.load_file(osp.join(config["ZOO_PATH"], "params", agent_uuid+".safetensors")),
                         sep='/'
-                    ),
-                    'human': unflatten_dict(
-                        safetensors.flax.load_file(osp.join(config["ZOO_PATH"], "params", human_uuid+".safetensors")),
-                        sep='/'
                     )
-                }
-                # Splice parameters for this agent pair
-                spliced_params = jax.tree.map(
-                    lambda *p: jnp.stack(p, axis=0),
-                    *(agent_params[a] for a in env.agents)
-                )
+                # # Splice parameters for this agent pair
+                # spliced_params = jax.tree.map(
+                #     lambda *p: jnp.stack(p, axis=0),
+                #     *(agent_params[a] for a in env.agents)
+                # )
                 
-       
-                    # Create network state
+                agent_params = jax.tree_util.tree_map(add_batch_dim, agent_params)
+
+                # Create network state
                 eval_network_state = EvalNetworkState(
                     apply_fn=network.apply,
-                    params=spliced_params,
+                    params=agent_params,
                 )
-                
                 batch_states.append(eval_network_state)
             return batch_states
 
         for alg, robo_agents in robo_filtered.items():
             inner_returns_dict = {}
+            inner_opponent_info = {}  
             
             # Get all agent UUIDs for this algorithm
             agent_uuids = list(robo_agents.agent_uuid)
@@ -575,72 +330,75 @@ def main(config):
             network = alg_funcs[alg]["NetworkArch"](config=robo_configs[alg])
             
             # Set up eval environment and function
-            eval_env, run_eval = alg_funcs[alg]["make_evaluation"](robo_configs[alg], load_zoo=load_zoo_dict, crossplay=True)
+            eval_env, run_eval = alg_funcs[alg]["make_evaluation"](robo_configs[alg], load_zoo=load_zoo_dict, crossplay=True) #testings this
             
             # Configure logging based on algorithm
             if alg == "MASAC":
                 eval_log_config = alg_funcs[alg]["EvalInfoLogConfig"](
                     env_state=False, done=True, action=False, reward=True,
-                    log_prob=False, obs=False, info=False, avail_actions=False,
+                    log_prob=False, obs=False, info=True, avail_actions=False,
                 )
             else:
                 eval_log_config = alg_funcs[alg]["EvalInfoLogConfig"](
                     env_state=False, done=True, action=False, value=False, reward=True,
-                    log_prob=False, obs=False, info=False, avail_actions=False,
+                    log_prob=False, obs=False, info=True, avail_actions=False,
                 )
             
             # Create jitted evaluation function
-            eval_jit = jax.jit(run_eval, static_argnames=["log_eval_info", "num_episodes"])
+            eval_jit = jax.jit(run_eval, static_argnames=["log_eval_info"])
             
             # Create vmapped evaluation function
             # This will apply eval_jit to each network state in parallel
             eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
-
-            human_uuid = partner_dict[alg].agent_uuid[partner_dict[alg].agent_uuid.keys()[0]] # disgusting hack
             multi_agent = True if alg in ["MASAC", "MAPPO"] else False
             for batch in batches:
                 # Create a batch of network states
-                batch_network_states = create_batch_network_states(batch, human_uuid, network, multi_agent=multi_agent)
-                
+                batch_network_states = create_batch_network_states(batch, network, multi_agent=multi_agent)
                 # Stack network states for vmapping
                 # We need to handle the structure correctly for vmapping
+                # stacked_params = jax.tree.map(
+                #     lambda *p: jnp.stack(p),
+                #     *[state.params for state in batch_network_states]
+                # )
                 stacked_params = jax.tree.map(
-                    lambda *p: jnp.stack(p),
+                    lambda *p: jnp.expand_dims(jnp.stack(p), axis=0),
                     *[state.params for state in batch_network_states]
                 )
-                
+
                 # Run vmapped evaluation
                 # We need to be careful about the structure of the network states
                 # For vmapping, we need the first dimension to be the batch dimension
                 batch_rngs = jax.random.split(eval_rng, len(batch))
                 episode_rngs = jax.random.split(eval_rng, num_humans)
-                batch_evals = []
                 
-                # Option 1: Use vmapped evaluation (if compatible with EvalNetworkState structure)
-                # try:
-                    # Create batch of evaluation states with the same apply_fn but different params
-                batch_eval_states = EvalNetworkState(
-                    apply_fn=network.apply,
-                    params=stacked_params
-                )
-                batch_evals = eval_vmap(episode_rngs, batch_eval_states, eval_log_config)
-                # except:
-                #     # Option 2: Fallback to sequential evaluation if vmapping doesn't work
-                #     print(f"Vmapping failed for {alg}, falling back to sequential evaluation")
-                #     batch_evals = []
-                #     for i, state in enumerate(batch_network_states):
-                #         agent_rng = batch_rngs[i] if i < len(batch_rngs) else eval_rng
-                #         eval_result = eval_jit(agent_rng, state, eval_log_config, num_episodes=num_humans)
-                #         batch_evals.append(eval_result)
-                
+                batch_dims = jax.tree.leaves(_tree_shape(stacked_params["params"]))[:2]
+                breakpoint()
+                def eval_mem_efficient():
+                    eval_network_state = EvalNetworkState(apply_fn=network.apply, params=stacked_params)
+                    split_trainstate = _flatten_and_split_trainstate(eval_network_state)
+                    breakpoint()
+                    evals = _concat_tree([
+                        eval_vmap(episode_rngs, ts, eval_log_config)
+                        for ts in tqdm(split_trainstate, desc="Evaluation batches")
+                    ])
+                    evals = jax.tree.map(
+                        lambda x: x.reshape((*batch_dims, *x.shape[1:])),
+                        evals
+                    )
+                    return evals
+                # batch_eval_states = EvalNetworkState(
+                #     apply_fn=network.apply,
+                #     params=stacked_params
+                # )
+
+                # batch_evals = eval_vmap(episode_rngs, batch_eval_states, eval_log_config) # here is where I get the error 
+                batch_evals = jax.jit(eval_mem_efficient)()
+
                 # Process results for each agent in the batch
                 for i, agent_uuid in enumerate(batch):
                     if isinstance(batch_evals, list):
-                        # If we used sequential evaluation (Option 2)
                         agent_evals = batch_evals[i]
                     else:
-                        # If we used vmapped evaluation (Option 1)
-                        # Extract results for this agent from the batched results
                         agent_evals = jax.tree.map(
                             lambda x: x[i] if hasattr(x, '__getitem__') and i < len(x) else x,
                             batch_evals
@@ -649,11 +407,23 @@ def main(config):
                     # Compute returns
                     episode_returns = _compute_episode_returns(agent_evals)
                     mean_returns = episode_returns["__all__"].mean(axis=-1)
+
+                    oppenent_ag_idx = jnp.round(jnp.mean(agent_evals.ag_idx['human'], axis=(-2, -1)))
+                    # mean_returns_expanded = mean_returns[:, :, jnp.newaxis]
+                    # oppenent_ag_idx_expanded = oppenent_ag_idx[:, jnp.newaxis, :]
+
                     
-                    # Store results
+                    # combined_rew_agx = mean_returns_expanded * oppenent_ag_idx_expanded
+
+
+                    # Store returns and opponent info
                     inner_returns_dict[agent_uuid] = mean_returns
-            
+                    inner_opponent_info[agent_uuid] = oppenent_ag_idx
+                            
             returns_dict[alg] = inner_returns_dict
+            opponent_info_dict[alg] = inner_opponent_info
+    jnp.save("crossplay_test_results.npy", returns_dict, allow_pickle=True)
+    jnp.save("crossplay_test_opponent_info.npy", opponent_info_dict, allow_pickle=True)
     breakpoint()
     # Now you can use returns_dict for analysis
     print("Evaluation complete!")

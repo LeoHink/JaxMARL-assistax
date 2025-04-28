@@ -113,10 +113,12 @@ def main(config):
     with jax.disable_jit(config["DISABLE_JIT"]):
         all_train_states = unflatten_dict(safetensors.flax.load_file(config["eval"]["path"]['all']), sep='/')
         batch_dims = jax.tree.leaves(_tree_shape(all_train_states["params"]))[:2]
+        breakpoint()
         n_sequential_evals = int(jnp.ceil(
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
             / config["GPU_ENV_CAPACITY"]
         ))
+        breakpoint()
 
         def _flatten_and_split_trainstate(trainstate):
                 # We define this operation and JIT it for memory reasons
@@ -148,6 +150,7 @@ def main(config):
         def eval_mem_efficient():
             eval_network_state = EvalNetworkState(apply_fn=network.apply, params=all_train_states)
             split_trainstate = _flatten_and_split_trainstate(eval_network_state)
+            breakpoint()
             evals = _concat_tree([
                 eval_vmap(eval_rng, ts, eval_log_config)
                 for ts in tqdm(split_trainstate, desc="Evaluation batches")

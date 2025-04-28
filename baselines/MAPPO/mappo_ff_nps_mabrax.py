@@ -12,13 +12,17 @@ import optax
 import distrax
 import jaxmarl
 from jaxmarl.wrappers.baselines import get_space_dim, LogEnvState
-from jaxmarl.wrappers.baselines import LogWrapper
+from jaxmarl.wrappers.baselines import LogWrapper, LogCrossplayWrapper
 from jaxmarl.wrappers.aht_all import ZooManager, LoadAgentWrapper, LoadEvalAgentWrapper
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict, Optional
+from datetime import datetime
 
 import functools
+
+def _tree_shape(pytree):
+    return jax.tree.map(lambda x: x.shape, pytree)
 
 @functools.partial(
     nn.vmap,
@@ -120,6 +124,7 @@ class RunnerState(NamedTuple):
     last_done: jnp.ndarray
     update_step: int
     rng: jnp.ndarray
+    ag_idx: Optional[int] = None # hopefully this doesn't break something in other code
 
 class UpdateState(NamedTuple):
     train_state: ActorCriticTrainState
@@ -143,6 +148,8 @@ class EvalInfo(NamedTuple):
     obs: Optional[jnp.ndarray]
     info: Optional[jnp.ndarray]
     avail_actions: Optional[jnp.ndarray]
+    ag_idx: Optional[jnp.ndarray]
+    idx_mapping: Optional[Dict[int, str]] = None
 
 @struct.dataclass
 class EvalInfoLogConfig:
@@ -558,30 +565,78 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
             env = LoadAgentWrapper.load_from_zoo(env, zoo, load_zoo)
     else:
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-    env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     config["OBS_DIM"] = int(get_space_dim(env.observation_space(env.agents[0])))
     config["ACT_DIM"] = int(get_space_dim(env.action_space(env.agents[0])))
     config["GOBS_DIM"] = int(get_space_dim(env.observation_space("global")))
-    env = LogWrapper(env, replace_info=True)
+ 
+    if crossplay:
+        env = LogCrossplayWrapper(env, replace_info=True, crossplay_info=crossplay)
+        now = datetime.now()
+        mapping_name = f"{config['ENV_NAME']}_{now.strftime('%Y-%m-%d_%H-%M-%S')}_idx_mapping.npy"
+        jnp.save(mapping_name, env.idx_mapping)
+    else:
+        env = LogWrapper(env, replace_info=True, crossplay_info=crossplay)
     max_steps = env.episode_length
 
-    def run_evaluation(rng, train_state, log_eval_info=EvalInfoLogConfig(), num_episodes=1):
-        
-        def _run_episode(episode_rng):
-            
-            rng_reset, rng_env = jax.random.split(episode_rng)
-            rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
-            obsv, env_state = jax.vmap(env.reset)(rngs_reset)
-            init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
+    def run_evaluation(rngs, train_state, log_eval_info=EvalInfoLogConfig()): # removed num_episodes=1 as this wasn't used
 
-            runner_state = RunnerState(
+        rng_reset, rng_env = jax.random.split(rngs[0]) # use first rng for init 
+        rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
+        init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
+        if crossplay:
+            init_obsv, init_env_state = jax.vmap(env.reset, in_axes=(0, None))(rngs_reset, None) # init ag_idx with None
+            init_runner_state = RunnerState(
                 train_state=train_state,
-                env_state=env_state,
-                last_obs=obsv,
+                env_state=init_env_state,
+                last_obs=init_obsv,
                 last_done=init_dones,
                 update_step=0,
                 rng=rng_env,
+                ag_idx=init_env_state.env_state.ag_idx # Init with None to start running epiodes
             )
+
+        else:
+            init_obsv, init_env_state = jax.vmap(env.reset)(rngs_reset)
+            init_runner_state = RunnerState(
+                train_state=train_state,
+                env_state=init_env_state,
+                last_obs=init_obsv,
+                last_done=init_dones,
+                update_step=0,
+                rng=rng_env,
+                # ag_idx=env_state.env_state.ag_idx['human'] # This is the wrong spot to be incrementing
+            )
+        def _run_episode(runner_state, episode_rng):
+
+            rng_reset, rng_env = jax.random.split(episode_rng)
+            rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
+            init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
+            if crossplay:
+                obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(rngs_reset, runner_state.ag_idx) # I think this would skip the 0 index so I probably also want to init this with None
+
+                runner_state = RunnerState(
+                    train_state=runner_state.train_state,
+                    env_state=env_state,
+                    last_obs=obsv,
+                    last_done=init_dones,
+                    update_step=runner_state.update_step,
+                    rng=rng_env,
+                    ag_idx=env_state.env_state.ag_idx # This is dict {'human': ag_idx} will be of dimension len(parallel envs)
+                )
+
+            else:
+                obsv, env_state = jax.vmap(env.reset)(rngs_reset)
+  
+                runner_state = RunnerState(
+                    train_state=runner_state.train_state,
+                    env_state=env_state,
+                    last_obs=obsv,
+                    last_done=init_dones,
+                    update_step=runner_state.update_step,
+                    rng=rng_env,
+                    # ag_idx=env_state.env_state.ag_idx['human'] # This is the wrong spot to be incrementing
+                )
+
 
             def _env_step(runner_state, unused):
                 rng = runner_state.rng
@@ -623,6 +678,7 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])
+
                 obsv, env_state, reward, done, info = jax.vmap(env.step)(
                     rng_step, runner_state.env_state, env_act,
                 )
@@ -638,7 +694,9 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
                     obs=(obs_batch if log_eval_info.obs else None),
                     info=(info if log_eval_info.info else None),
                     avail_actions=(avail_actions if log_eval_info.avail_actions else None),
+                    ag_idx=(runner_state.ag_idx if crossplay else None),
                 )
+
                 runner_state = RunnerState(
                     train_state=runner_state.train_state,
                     env_state=env_state,
@@ -646,21 +704,30 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
                     last_done=done_batch,
                     update_step=runner_state.update_step,
                     rng=rng,
+                    ag_idx=runner_state.ag_idx,
                 )
                 return runner_state, eval_info
 
-            _, episode_eval_info = jax.lax.scan(
+
+            runner_state, episode_eval_info = jax.lax.scan(
                 _env_step, runner_state, None, max_steps
             )
-
-            return episode_eval_info
+ 
+            return runner_state, episode_eval_info
         
-        _, all_episode_eval_infos = jax.lax.scan(
-            lambda carry, rng: (carry, _run_episode(rng)),
-            None,
-            rng # consider renaming rng for more obvious name
+        # if rngs.ndim == 1:
+        #     rngs = jnp.expand_dims(rngs, 0)
+        
+        runner_state, all_episode_eval_infos = jax.lax.scan(
+            _run_episode, init_runner_state, rngs
         )
+        
 
+        # _, all_episode_eval_infos = jax.lax.scan(
+        #     lambda carry, rng: (carry, _run_episode(rng)),
+        #     None,
+        #     rngs # consider renaming rng for more obvious name
+        # )
         return all_episode_eval_infos
 
     return env, run_evaluation

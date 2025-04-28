@@ -56,9 +56,10 @@ class LogWrapper(JaxMARLWrapper):
     NOTE for now for envs where agents terminate at the same time.
     """
 
-    def __init__(self, env: MultiAgentEnv, replace_info: bool = False):
+    def __init__(self, env: MultiAgentEnv, replace_info: bool = False, crossplay_info: bool = False):
         super().__init__(env)
         self.replace_info = replace_info
+        self.crossplay = crossplay_info
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key: chex.PRNGKey) -> Tuple[chex.Array, State]:
@@ -94,12 +95,78 @@ class LogWrapper(JaxMARLWrapper):
             returned_episode_lengths=state.returned_episode_lengths * (1 - ep_done)
             + new_episode_length * ep_done,
         )
+        # if self.crossplay: # added for crossplay
+        #     agent_indices = info["agent_indices"]
+        # else:
+        #     agent_indices = None
+
         if self.replace_info:
             info = {}
         info["returned_episode_returns"] = state.returned_episode_returns
         info["returned_episode_lengths"] = state.returned_episode_lengths
         info["returned_episode"] = jnp.full((self._env.num_agents,), ep_done)
+        # info["agent_indices"] = agent_indices # added for crossplay
         return obs, state, reward, done, info
+
+# TODO: this sucks I would like to avoid having to edit JaXMARL stuff specifically     
+class LogCrossplayWrapper(JaxMARLWrapper):
+    """ Mirrors the LogWrapper but for crossplay where we actually 
+    want to pass the ag_idx into the reset function so that we can cycle through agents.
+    """
+    def __init__(self, env: MultiAgentEnv, replace_info: bool = False, crossplay_info: bool = False):
+        super().__init__(env)
+        self.replace_info = replace_info
+        self.crossplay = crossplay_info
+
+    @partial(jax.jit, static_argnums=(0,))
+    def reset(self, key: chex.PRNGKey, ag_idx: int) -> Tuple[chex.Array, State]:
+        obs, env_state = self._env.reset(key, ag_idx) # This is the only difference to the LogWrapper
+        state = LogEnvState(
+            env_state,
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+            jnp.zeros((self._env.num_agents,)),
+        )
+        return obs, state
+
+    @partial(jax.jit, static_argnums=(0,))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state: LogEnvState,
+        action: Union[int, float],
+    ) -> Tuple[chex.Array, LogEnvState, float, bool, dict]:
+
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action
+        )
+
+        ep_done = done["__all__"]
+        new_episode_return = state.episode_returns + self._batchify_floats(reward)
+        new_episode_length = state.episode_lengths + 1
+        state = LogEnvState(
+            env_state=env_state,
+            episode_returns=new_episode_return * (1 - ep_done),
+            episode_lengths=new_episode_length * (1 - ep_done),
+            returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
+            + new_episode_return * ep_done,
+            returned_episode_lengths=state.returned_episode_lengths * (1 - ep_done)
+            + new_episode_length * ep_done,
+        )
+        # if self.crossplay: # added for crossplay
+        #     agent_indices = info["agent_indices"]
+        # else:
+        #     agent_indices = None
+
+        if self.replace_info:
+            info = {}
+        info["returned_episode_returns"] = state.returned_episode_returns
+        info["returned_episode_lengths"] = state.returned_episode_lengths
+        info["returned_episode"] = jnp.full((self._env.num_agents,), ep_done)
+        # info["agent_indices"] = agent_indices # added for crossplay
+        return obs, state, reward, done, info
+
 
 class MPELogWrapper(LogWrapper):
     """ Times reward signal by number of agents within the environment,

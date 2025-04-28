@@ -15,7 +15,7 @@ ENV_KWARGS:
 TOTAL_TIMESTEPS: 6e6
 
 # NUM_STEPS: 256
-NUM_ENVS: 32
+NUM_ENVS: 6
 NUM_SEEDS: 6
 SEED: 0
 NUM_EVAL_EPISODES: 32 # lower for rendering
@@ -61,7 +61,7 @@ DEVICE: 0
 DETERMINISTIC_EVAL: False
 
 # ZOO SETTINGS
-ZOO_PATH: /path/to/zoo
+ZOO_PATH: /home/leo/assistax/zoo
 
 eval: # path to actor all params for eval
   path: /home/leo/assistax/JaxMARL/baselines/MASAC/outputs/mabrax/scratchitch/2025-01-16/11-52-11/actor_all_params.safetensors

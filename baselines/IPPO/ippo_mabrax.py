@@ -79,7 +79,6 @@ def _compute_episode_returns(eval_info, time_axis=-2):
 @hydra.main(version_base=None, config_path="config", config_name="ippo_mabrax")
 def main(config):
     config = OmegaConf.to_container(config, resolve=True)
-
     # IMPORT FUNCTIONS BASED ON ARCHITECTURE
     match (config["network"]["recurrent"], config["network"]["agent_param_sharing"]):
         case (False, False):
@@ -224,6 +223,7 @@ def main(config):
             eval_final.env_state.env_state.pipeline_state, first_episode_done,
             time_idx=-1, eval_idx=best_idx,
         )
+        jnp.save("frames.npy", eval_final.env_state.env_state.pixels) # write a functionality like _take_episode with best idx as well
         html.save("final_worst.html", eval_env.sys, worst_episode)
         html.save("final_median.html", eval_env.sys, median_episode)
         html.save("final_best.html", eval_env.sys, best_episode)

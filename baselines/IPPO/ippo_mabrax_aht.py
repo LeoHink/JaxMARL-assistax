@@ -104,6 +104,7 @@ def main(config):
         env_name = config["ENV_NAME"]
         index_filtered = zoo.index.query(f'algorithm == "{alg}"').query(f'scenario == "{env_name}"').query('scenario_agent_id == "human"')
         train_set = index_filtered.sample(frac=0.5)
+        breakpoint()
         test_set = index_filtered.drop(train_set.index)
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
         train_jit = jax.jit(
@@ -168,7 +169,7 @@ def main(config):
             )
             return _tree_split(flat_trainstate, n_sequential_evals)
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
-
+        breakpoint()
         eval_train_env, run_eval_train = make_evaluation(config, load_zoo={"human": list(train_set.agent_uuid)})
         eval_test_env, run_eval_test = make_evaluation(config, load_zoo={"human": list(test_set.agent_uuid)})
                 
