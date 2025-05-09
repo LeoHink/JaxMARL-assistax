@@ -1,4 +1,9 @@
 import os
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.9"
+# os.environ["XLA_FLAGS"] = (
+#     '--xla_gpu_enable_triton_softmax_fusion=true '
+#     '--xla_gpu_triton_gemm_any=true '
+# )
 import time
 from tqdm import tqdm
 import jax
@@ -140,7 +145,7 @@ def main(config):
                 )
 
         # RUN EVALUATION
-        # Assume the first 2 dimensions are batch dims
+        # Assume the first 2 dimensions are batch dims # check the train_state_params
         batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:2]
         n_sequential_evals = int(jnp.ceil(
             config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
@@ -153,6 +158,7 @@ def main(config):
                 trainstate
             )
             return _tree_split(flat_trainstate, n_sequential_evals)
+  
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(

@@ -43,6 +43,7 @@ class MABraxEnv(MultiAgentEnv):
                 Defaults to None.
         """
         base_env_name = env_name.split("_")[0]
+        
         env = envs.create(
             base_env_name, episode_length, action_repeat, auto_reset, backend=backend, **kwargs
         )
@@ -248,3 +249,7 @@ class BedBathing(MABraxEnv):
 class ArmManipulation(MABraxEnv):
     def __init__(self, **kwargs):
         super().__init__("armmanipulation", **kwargs)
+
+class PushCoop(MABraxEnv):
+    def __init__(self, **kwargs):
+        super().__init__("pushcoop", **kwargs)

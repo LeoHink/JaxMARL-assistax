@@ -2,16 +2,17 @@ defaults:
   - network: ff_nps
   - _self_
 
-ENV_NAME: scratchitch
+ENV_NAME: pushcoop
+
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
   backend: mjx
-  disability:
-    joint_idx: 13
-    joint_restriction_factor: 1.0
-    joint_strength: 1.0
-    tremor_magnitude: 0.0
+  # disability:
+  #   joint_idx: 13
+  #   joint_restriction_factor: 1.0
+  #   joint_strength: 1.0
+  #   tremor_magnitude: 0.0
 
   pixel_obs:
     hw: 64
@@ -20,12 +21,12 @@ ENV_KWARGS:
     cache_objects: True
     n_envs: 2  # if cachinig same as NUM_ENVS
 
-TOTAL_TIMESTEPS: 1e5
+TOTAL_TIMESTEPS: 30e6
 NUM_STEPS: 64
-NUM_ENVS: 64
-NUM_SEEDS: 1
+NUM_ENVS: 512
+NUM_SEEDS: 2
 SEED: 0
-NUM_EVAL_EPISODES: 2
+NUM_EVAL_EPISODES: 4
 
 # RL HYPERPARAMETERS
 UPDATE_EPOCHS: 4
@@ -51,9 +52,9 @@ DEVICE: 0
 # EVAL TRAIN STATE
 eval:
   path:
-    human: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/scratchitch/2025-01-17/18-20-07/human.safetensors 
-    robot: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/scratchitch/2025-01-17/18-20-07robot.safetensors
-    all: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/scratchitch/2025-01-17/18-20-07/all_params.safetensors 
+    human: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/pushcoop/2025-05-07/23-12-41/robot1.safetensors
+    robot: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/pushcoop/2025-05-07/23-12-41/robot2.safetensors
+    all: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/pushcoop/2025-05-07/23-12-41/all_params.safetensors
 # SWEEPER SETTINGS
 sweep:
   num_configs: 4

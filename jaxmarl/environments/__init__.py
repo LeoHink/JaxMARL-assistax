@@ -17,7 +17,7 @@ from .mpe import (
 from .smax import SMAX, HeuristicEnemySMAX, LearnedPolicyEnemySMAX
 from .switch_riddle import SwitchRiddle
 from .overcooked import Overcooked, overcooked_layouts
-from .mabrax import Ant, Humanoid, Hopper, Walker2d, HalfCheetah, ScratchItch, BedBathing, ArmManipulation
+from .mabrax import Ant, Humanoid, Hopper, Walker2d, HalfCheetah, ScratchItch, BedBathing, ArmManipulation, PushCoop
 from .hanabi import Hanabi
 from .storm import InTheGrid, InTheGrid_2p, InTheMatrix
 from .coin_game import CoinGame

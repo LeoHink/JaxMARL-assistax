@@ -24,6 +24,7 @@ from .environments import (
     ScratchItch,
     BedBathing,
     ArmManipulation,
+    PushCoop,
     InTheGrid,
     InTheGrid_2p,
     InTheMatrix,
@@ -91,13 +92,14 @@ def make(env_id: str, **env_kwargs):
         env = BedBathing(**env_kwargs)
     elif env_id == "armmanipulation":
         env = ArmManipulation(**env_kwargs)
+    elif env_id == "pushcoop":
+        env = PushCoop(**env_kwargs)
     elif env_id == "hopper_3x1":
         env = Hopper(**env_kwargs)
     elif env_id == "humanoid_9|8":
         env = Humanoid(**env_kwargs)
     elif env_id == "walker2d_2x3":
         env = Walker2d(**env_kwargs)
-
     # 5. InTheGrid
     elif env_id == "storm":
         env = InTheGrid(**env_kwargs)
@@ -151,6 +153,7 @@ registered_envs = [
     "scratchitch",
     "bedbathing",
     "armmanipulation",
+    "pushcoop",
     "storm",
     "storm_2p",
     "storm_np",

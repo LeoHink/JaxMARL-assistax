@@ -227,6 +227,7 @@ def make_train(config, save_train_state=False, load_zoo=False):
             def _env_step(runner_state, unused):
                 rng = runner_state.rng
                 obs_batch = batchify(runner_state.last_obs, env.agents)
+
                 avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
                 avail_actions = jax.lax.stop_gradient(
                     batchify(avail_actions, env.agents)
@@ -245,7 +246,7 @@ def make_train(config, save_train_state=False, load_zoo=False):
                 pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
                 rng, act_rng = jax.random.split(rng)
                 action, log_prob = pi.sample_and_log_prob(seed=act_rng)
-                breakpoint()
+                
                 env_act = unbatchify(action, env.agents)
 
                 # STEP ENV
@@ -254,7 +255,7 @@ def make_train(config, save_train_state=False, load_zoo=False):
                 obsv, env_state, reward, done, info = jax.vmap(env.step)( # for pixel use env_state.env_state.frames instead of obs
                     rng_step, runner_state.env_state, env_act,
                 )
-
+            
                 done_batch = batchify(done, env.agents)
                 info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
                 transition = Transition(
@@ -514,7 +515,12 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 
     def run_evaluation(rngs, train_state, log_eval_info=EvalInfoLogConfig()):
         
-        rng_reset, rng_env = jax.random.split(rngs[0])
+        if crossplay:
+            rng_reset, rng_env = jax.random.split(rngs[0])
+        else:
+            rng_reset, rng_env = jax.random.split(rngs)
+        
+        
         rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
         init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
         if crossplay:
@@ -540,16 +546,17 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
                 rng=rng_env,
                 # ag_idx=env_state.env_state.ag_idx['human'] # This is the wrong spot to be incrementing
             )
-        breakpoint()
+        
 
         def _run_episode(runner_state, episode_rng):
-
+            
+            
             rng_reset, rng_env = jax.random.split(episode_rng)
             rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
             init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
             if crossplay:
                 obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(rngs_reset, runner_state.ag_idx) # I think this would skip the 0 index so I probably also want to init this with None
-                breakpoint()
+                
                 runner_state = RunnerState(
                     train_state=runner_state.train_state,
                     env_state=env_state,
@@ -562,7 +569,7 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 
             else:
                 obsv, env_state = jax.vmap(env.reset)(rngs_reset)
-                breakpoint()
+                
                 runner_state = RunnerState(
                     train_state=runner_state.train_state,
                     env_state=env_state,
@@ -590,6 +597,7 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
                     runner_state.train_state.params,
                     ac_in,
                 )
+                
                 actor_std = jnp.expand_dims(actor_std, axis=1)
                 pi = distrax.MultivariateNormalDiag(actor_mean, actor_std)
                 rng, act_rng = jax.random.split(rng)
@@ -633,11 +641,13 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 
             return runner_state, episode_eval_info
 
+        if crossplay:
+            runner_state, all_episode_eval_infos = jax.lax.scan(
+                _run_episode, init_runner_state, rngs
+            )
+        else:
+            runner_state, all_episode_eval_infos = _run_episode(init_runner_state, rngs)
         
-        runner_state, all_episode_eval_infos = jax.lax.scan(
-            _run_episode, init_runner_state, rngs
-        )
-
         return all_episode_eval_infos
     
     return env, run_evaluation
@@ -704,7 +714,7 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 #                 obsv, env_state, reward, done, info = jax.vmap(env.step)(
 #                     rng_step, runner_state.env_state, env_act,
 #                 )
-#                 breakpoint()
+#                 
 #                 done_batch = batchify(done, env.agents)
 #                 info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info) # why do we do this actually? 
 #                 eval_info = EvalInfo(

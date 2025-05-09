@@ -45,6 +45,10 @@ _agent_action_mapping = {
         "robot": jnp.array([17, 18, 19, 20, 21, 22, 23]),
         "human": jnp.array([11, 12, 13]),
     },
+    "pushcoop": {
+        "robot1": jnp.array([0, 1, 2, 3, 4, 5, 6]),
+        "robot2": jnp.array([7, 8, 9, 10, 11, 12, 13]),
+    },
 }
 
 
@@ -129,6 +133,11 @@ ranges: Dict[str, Dict[str, List[Union[int, Tuple[int, int]]]]] = {
         "robot": [(0,28)],
         "human": [(28,67)],
         "global": [(0,67)],
+    },
+    "pushcoop": {
+        "robot1": [(0, 19)],
+        "robot2": [(20, 39)],
+        "global": [(0, 39)],
     },
 }
 
