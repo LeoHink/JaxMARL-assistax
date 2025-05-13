@@ -155,7 +155,7 @@ def main(config):
             )
         # RENDER
         # Run episodes for render (saving env_state at each timeste
-    
+        breakpoint()
         eval_final = eval_jit(eval_rng, final_eval_network_state, eval_log_config)
         first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)

@@ -643,12 +643,12 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 
             return runner_state, episode_eval_info
 
-        if crossplay:
-            runner_state, all_episode_eval_infos = jax.lax.scan(
-                _run_episode, init_runner_state, rngs
-            )
-        else:
-            runner_state, all_episode_eval_infos = _run_episode(init_runner_state, rngs)
+        # if crossplay:
+        runner_state, all_episode_eval_infos = jax.lax.scan(
+            _run_episode, init_runner_state, rngs
+        )
+        # else:
+        #     runner_state, all_episode_eval_infos = _run_episode(init_runner_state, rngs)
         
         return all_episode_eval_infos
     

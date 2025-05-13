@@ -154,7 +154,7 @@ def main(config):
                 trainstate
             )
             return _tree_split(flat_trainstate, n_sequential_evals)
-        split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
+        split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states.actor)
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(
             env_state=False,

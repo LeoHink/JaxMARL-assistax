@@ -277,7 +277,6 @@ def main(config):
         num_humans = sum(len(x) for x in partner_dict.values())
 
         load_zoo_dict = {algo: {"human": list(partner_dict[algo].agent_uuid)} for algo in partner_dict.keys()}
-        breakpoint()
         robo_filtered = {}
         for alg in config["crossplay"]["robot_algos"]:
             robo_filtered[alg] = zoo.index.query(f'algorithm == "{alg}"'
@@ -325,7 +324,6 @@ def main(config):
             
             # Create batches of agent UUIDs
             batches = [agent_uuids[i:i + parallel_batch_size] for i in range(0, len(agent_uuids), parallel_batch_size)]
-            
             # Create network for this algorithm
             network = alg_funcs[alg]["NetworkArch"](config=robo_configs[alg])
             
@@ -355,11 +353,6 @@ def main(config):
                 # Create a batch of network states
                 batch_network_states = create_batch_network_states(batch, network, multi_agent=multi_agent)
                 # Stack network states for vmapping
-                # We need to handle the structure correctly for vmapping
-                # stacked_params = jax.tree.map(
-                #     lambda *p: jnp.stack(p),
-                #     *[state.params for state in batch_network_states]
-                # )
                 stacked_params = jax.tree.map(
                     lambda *p: jnp.expand_dims(jnp.stack(p), axis=0),
                     *[state.params for state in batch_network_states]
@@ -372,11 +365,9 @@ def main(config):
                 episode_rngs = jax.random.split(eval_rng, num_humans)
                 
                 batch_dims = jax.tree.leaves(_tree_shape(stacked_params["params"]))[:2]
-                breakpoint()
                 def eval_mem_efficient():
                     eval_network_state = EvalNetworkState(apply_fn=network.apply, params=stacked_params)
                     split_trainstate = _flatten_and_split_trainstate(eval_network_state)
-                    breakpoint()
                     evals = _concat_tree([
                         eval_vmap(episode_rngs, ts, eval_log_config)
                         for ts in tqdm(split_trainstate, desc="Evaluation batches")
@@ -393,16 +384,44 @@ def main(config):
 
                 # batch_evals = eval_vmap(episode_rngs, batch_eval_states, eval_log_config) # here is where I get the error 
                 batch_evals = jax.jit(eval_mem_efficient)()
-
                 # Process results for each agent in the batch
+                def index_second_dim_with_check(tree, idx):
+                    def process(x):
+                        # Check if it's an array-like object with a shape
+                        if hasattr(x, 'shape') and len(x.shape) > 1:
+                            # Check that the first dimension is exactly 1
+                            if x.shape[0] != 1:
+                                raise ValueError(f"Expected first dimension to be 1, but got shape {x.shape}")
+                            
+                            # Check that index is within bounds of second dimension
+                            if idx >= x.shape[1]:
+                                raise IndexError(f"Index {idx} out of bounds for dimension 1 with size {x.shape[1]}")
+                            
+                            # Index into second dimension while preserving first dimension
+                            return x[:, idx, ...]
+                        return x
+                    
+                    return jax.tree.map(process, tree)
+                
                 for i, agent_uuid in enumerate(batch):
+
                     if isinstance(batch_evals, list):
                         agent_evals = batch_evals[i]
                     else:
-                        agent_evals = jax.tree.map(
-                            lambda x: x[i] if hasattr(x, '__getitem__') and i < len(x) else x,
-                            batch_evals
-                        )
+                        # agent_evals = jax.tree.map(
+                        #     lambda x: x[i] if hasattr(x, '__getitem__') and i < len(x) else x,
+                        #     batch_evals
+                        # )
+                        # agent_evals = jax.tree.map(
+                        #     lambda x: x[:, i, ...] if (hasattr(x, 'shape') and len(x.shape) > 1 and i < x.shape[1]) 
+                        #             else x,
+                        #     batch_evals
+                        #     )
+                        try:
+                            agent_evals = index_second_dim_with_check(batch_evals, i)
+                        except (ValueError, IndexError) as e:
+                            print(f"Error: {e}")
+                            # Handle error appropriately                           
                     
                     # Compute returns
                     episode_returns = _compute_episode_returns(agent_evals)
@@ -424,7 +443,6 @@ def main(config):
             opponent_info_dict[alg] = inner_opponent_info
     jnp.save("crossplay_test_results.npy", returns_dict, allow_pickle=True)
     jnp.save("crossplay_test_opponent_info.npy", opponent_info_dict, allow_pickle=True)
-    breakpoint()
     # Now you can use returns_dict for analysis
     print("Evaluation complete!")
     return returns_dict

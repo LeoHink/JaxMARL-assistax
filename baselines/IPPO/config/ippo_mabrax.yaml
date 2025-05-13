@@ -54,9 +54,9 @@ DEVICE: 0
 # EVAL TRAIN STATE
 eval:
   path:
-    human: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/pushcoop/2025-05-12/19-48-37/robot1.safetensors
-    robot: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/pushcoop/2025-05-12/19-48-37/robot2.safetensors
-    all: /home/leo/assistax/JaxMARL/baselines/IPPO/outputs/mabrax/pushcoop/2025-05-12/19-48-37/all_params.safetensors
+    human: /home/leo/assistax/JaxMARL/baselines/outputs/mabrax/pushcoop/2025-05-13/11-02-56/robot1.safetensors
+    robot: /home/leo/assistax/JaxMARL/baselines/outputs/mabrax/pushcoop/2025-05-13/11-02-56/robot2.safetensors
+    all: /home/leo/assistax/JaxMARL/baselines/outputs/mabrax/pushcoop/2025-05-13/11-02-56/all_params.safetensors
 # SWEEPER SETTINGS
 sweep:
   num_configs: 4

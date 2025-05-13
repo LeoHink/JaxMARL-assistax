@@ -580,8 +580,13 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
     max_steps = env.episode_length
 
     def run_evaluation(rngs, train_state, log_eval_info=EvalInfoLogConfig()): # removed num_episodes=1 as this wasn't used
-
-        rng_reset, rng_env = jax.random.split(rngs[0]) # use first rng for init 
+        
+        breakpoint()
+        if crossplay:
+            rng_reset, rng_env = jax.random.split(rngs[0])
+        else:
+            rng_reset, rng_env = jax.random.split(rngs)# use first rng for init 
+        
         rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
         init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
         if crossplay:
@@ -655,7 +660,7 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
                 # SELECT ACTION
 
                 actor_mean, actor_std = runner_state.train_state.apply_fn(
-                    runner_state.train_state.params, # changed from runner_state.train_state.actor.params for crossplay incase this breaks somewhere else
+                    runner_state.train_state.params, # changed from runner_state.train_state.actor.params for crossplay but this breaks for normal training
                     actor_in,
                     )  
 
@@ -719,9 +724,12 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
         # if rngs.ndim == 1:
         #     rngs = jnp.expand_dims(rngs, 0)
         
-        runner_state, all_episode_eval_infos = jax.lax.scan(
-            _run_episode, init_runner_state, rngs
+        if crossplay:
+            runner_state, all_episode_eval_infos = jax.lax.scan(
+                _run_episode, init_runner_state, rngs
         )
+        else:
+            runner_state, all_episode_eval_infos = _run_episode(init_runner_state, rngs)
         
 
         # _, all_episode_eval_infos = jax.lax.scan(
