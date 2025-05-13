@@ -18,6 +18,8 @@ from jaxmarl.wrappers.aht_all import ZooManager, LoadAgentWrapper, LoadEvalAgent
 import hydra
 from omegaconf import OmegaConf
 from typing import Sequence, NamedTuple, Any, Dict, Optional
+import os 
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
 
 import functools
 
@@ -255,7 +257,7 @@ def make_train(config, save_train_state=False, load_zoo=False):
                 obsv, env_state, reward, done, info = jax.vmap(env.step)( # for pixel use env_state.env_state.frames instead of obs
                     rng_step, runner_state.env_state, env_act,
                 )
-            
+
                 done_batch = batchify(done, env.agents)
                 info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
                 transition = Transition(
@@ -603,7 +605,7 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
                 rng, act_rng = jax.random.split(rng)
                 action, log_prob = pi.sample_and_log_prob(seed=act_rng)
                 env_act = unbatchify(action, env.agents)
-
+                
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config["NUM_EVAL_EPISODES"])

@@ -983,7 +983,6 @@ class LoadEvalAgentWrapper(JaxMARLWrapper):
             else:
                 ag_index[agent_type] = (current_idx[agent_type]) + 1 % self.total_pop_size
             
-        jax.debug.print()
         return ag_index
         
     # def reset(self, key: chex.PRNGKey, current_idx: Optional[int]) -> Tuple[Dict[str, chex.Array], LoadAgentState]:

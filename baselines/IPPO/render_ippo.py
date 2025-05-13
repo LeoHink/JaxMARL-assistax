@@ -82,15 +82,26 @@ def main(config):
     rng, eval_rng = jax.random.split(rng)
     with jax.disable_jit(config["DISABLE_JIT"]):
         
-        human_params = unflatten_dict(
-            safetensors.flax.load_file(config["eval"]["path"]["human"]), sep='/'
-        )
+        if config['ENV_NAME'] == 'pushcoop':
+            robot1_params = unflatten_dict(
+                safetensors.flax.load_file(config["eval"]["path"]["human"]), sep='/'
+            )
 
-        robot_params = unflatten_dict(
-            safetensors.flax.load_file(config["eval"]["path"]["robot"]), sep='/'
-        )
+            robot2_params = unflatten_dict(
+                safetensors.flax.load_file(config["eval"]["path"]["robot"]), sep='/'
+            )
+            agent_params = {'robot1': robot1_params, 'robot2': robot2_params}
+        
+        else:
+            human_params = unflatten_dict(
+                safetensors.flax.load_file(config["eval"]["path"]["human"]), sep='/'
+            )
 
-        agent_params = {'human': human_params, 'robot': robot_params}
+            robot_params = unflatten_dict(
+                safetensors.flax.load_file(config["eval"]["path"]["robot"]), sep='/'
+            )
+
+            agent_params = {'human': human_params, 'robot': robot_params}
 
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(
@@ -110,21 +121,38 @@ def main(config):
         )
         network = NetworkArch(config=config)
 
-        robot = _tree_take(
-            agent_params["robot"],
-            0,
-            axis=0
-        )
-        human = _tree_take(
-            agent_params["human"],
-            0,
-            axis=0
-        )
-        final_eval_network_state = EvalNetworkState(
-            apply_fn=network.apply,
-            params=_stack_tree([robot, human]),
-        )
-        breakpoint()
+        if config['ENV_NAME'] == 'pushcoop':
+            robot1 = _tree_take(
+                agent_params["robot1"],
+                0,
+                axis=0
+            )
+            robot2 = _tree_take(
+                agent_params["robot2"],
+                0,
+                axis=0
+            )
+            
+            final_eval_network_state = EvalNetworkState(
+                apply_fn=network.apply,
+                params=_stack_tree([robot1, robot2]),
+            )
+
+        else:    
+            robot = _tree_take(
+                agent_params["robot"],
+                0,
+                axis=0
+            )
+            human = _tree_take(
+                agent_params["human"],
+                0,
+                axis=0
+            )
+            final_eval_network_state = EvalNetworkState(
+                apply_fn=network.apply,
+                params=_stack_tree([robot, human]),
+            )
         # RENDER
         # Run episodes for render (saving env_state at each timeste
     

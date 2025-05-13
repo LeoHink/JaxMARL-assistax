@@ -4,7 +4,7 @@ import os
 #     "--xla_gpu_triton_gemm_any=true "
 #     "--xla_dump_to=xla_dump "
 # )
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.95"
 import time
 from tqdm import tqdm
@@ -161,6 +161,7 @@ def main(config):
             return evals
         evals = jax.jit(eval_mem_efficient)()
 
+   
         first_episode_returns = _compute_episode_returns(evals)
         first_episode_returns = first_episode_returns["__all__"]
         mean_episode_returns = first_episode_returns.mean(axis=-1)

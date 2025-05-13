@@ -110,6 +110,7 @@ def main(config):
             config["LR"], config["ENT_COEF"], config["CLIP_EPS"]
         )
 
+        breakpoint()
         # SAVE TRAIN METRICS
         EXCLUDED_METRICS = ["train_state"]
         jnp.save("metrics.npy", {
@@ -124,6 +125,7 @@ def main(config):
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
         all_train_states = out["metrics"]["train_state"]
         final_train_state = out["runner_state"].train_state
+        breakpoint()
         safetensors.flax.save_file(
             flatten_dict(all_train_states.params, sep='/'),
             "all_params.safetensors"
@@ -144,6 +146,7 @@ def main(config):
                     f"{agent}.safetensors",
                 )
 
+        breakpoint()
         # RUN EVALUATION
         # Assume the first 2 dimensions are batch dims # check the train_state_params
         batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:2]
@@ -162,7 +165,7 @@ def main(config):
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(
-            env_state=False,
+            env_state=True,
             done=True,
             action=False,
             value=False,
@@ -197,7 +200,7 @@ def main(config):
         # RENDER
         # Run episodes for render (saving env_state at each timestep)
         render_log_config = EvalInfoLogConfig(
-            env_state=True,
+            env_state=False,
             done=True,
             action=False,
             value=False,

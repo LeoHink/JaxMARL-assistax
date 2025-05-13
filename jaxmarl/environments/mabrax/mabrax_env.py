@@ -52,6 +52,7 @@ class MABraxEnv(MultiAgentEnv):
         self.action_repeat = action_repeat
         self.auto_reset = auto_reset
         self.homogenisation_method = homogenisation_method
+        self.het_reward = kwargs['het_reward'] # adding this
         self.agent_obs_mapping = _agent_observation_mapping[env_name]
         self.agent_action_mapping = _agent_action_mapping[env_name]
         self.agents = list(self.agent_action_mapping.keys())
@@ -117,8 +118,10 @@ class MABraxEnv(MultiAgentEnv):
         global_action = self.map_agents_to_global_action(actions)
         next_state = self.env.step(key, state, global_action)  # type: ignore
         observations = self.get_obs(next_state)
-        rewards = {agent: next_state.reward for agent in self.agents}
-        rewards["__all__"] = next_state.reward
+        # rewards = {agent: next_state.reward for agent in self.agents}
+        # rewards["__all__"] = next_state.reward
+        rewards = {agent: next_state.reward[i] if self.het_reward else next_state.reward for i, agent in enumerate(self.agents)}
+        rewards["__all__"] = jnp.mean(next_state.reward) if self.het_reward else next_state.reward # added this for het rewards but maybe it would be best
         dones = {agent: next_state.done.astype(jnp.bool_) for agent in self.agents}
         dones["__all__"] = next_state.done.astype(jnp.bool_)
         return (
