@@ -2,12 +2,13 @@ defaults:
   - network: ff_nps
   - _self_
 
-ENV_NAME: scratchitch
+ENV_NAME: pushcoop
 ENV_KWARGS:
   ctrl_cost_weight: 0
   homogenisation_method: max
   backend: mjx
-  het_reward: False # needs to be true for pushcoop
+  het_reward: True # needs to be true for pushcoop
+  episode_length: 4000
   # disability:
   #   joint_idx: 13
   #   joint_restriction_factor: 1.0
@@ -16,7 +17,7 @@ ENV_KWARGS:
 TOTAL_TIMESTEPS: 6e6
 
 # NUM_STEPS: 256
-NUM_ENVS: 32
+NUM_ENVS: 64
 NUM_SEEDS: 6
 SEED: 0
 NUM_EVAL_EPISODES: 32 # lower for rendering

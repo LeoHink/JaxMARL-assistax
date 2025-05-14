@@ -307,7 +307,6 @@ def make_train(config, save_train_state=False, load_zoo=False):
                 obsv, env_state, reward, done, info = jax.vmap(env.step)(
                     rng_step, runner_state.env_state, env_act,
                 )
-                breakpoint()
                 done_batch = batchify(done, env.agents)
                 all_done = done["__all__"]
                 all_done = jnp.broadcast_to(all_done, (env.num_agents, *all_done.shape))
@@ -581,7 +580,6 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 
     def run_evaluation(rngs, train_state, log_eval_info=EvalInfoLogConfig()): # removed num_episodes=1 as this wasn't used
         
-        breakpoint()
         if crossplay:
             rng_reset, rng_env = jax.random.split(rngs[0])
         else:

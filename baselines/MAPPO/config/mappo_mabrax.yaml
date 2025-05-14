@@ -8,18 +8,18 @@ ENV_KWARGS:
   homogenisation_method: max
   backend: mjx
   het_reward: True # needs to be true for pushcoop
-  episode_length: 2000
+  episode_length: 4000
   # disability:
   #   joint_idx: 13
   #   joint_restriction_factor: 1.0
   #   joint_strength: 1.0
   #   tremor_magnitude: 0.0
 TOTAL_TIMESTEPS: 30e6
-NUM_STEPS: 128
+NUM_STEPS: 256
 NUM_ENVS: 512
 NUM_SEEDS: 4
 SEED: 0
-NUM_EVAL_EPISODES: 4
+NUM_EVAL_EPISODES: 1
 
 # RL HYPERPARAMETERS
 UPDATE_EPOCHS: 4
@@ -46,8 +46,8 @@ DEVICE: 0
 eval:
   compute_value: false
   path: 
-    human: /home/leo/assistax/JaxMARL/baselines/MAPPO/outputs/mabrax/pushcoop/2025-05-13/16-55-12/robot1.safetensors
-    robot: /home/leo/assistax/JaxMARL/baselines/MAPPO/outputs/mabrax/pushcoop/2025-05-13/16-55-12/robot2.safetensors
+    human: /home/leo/assistax/JaxMARL/baselines/MAPPO/outputs/mabrax/pushcoop/2025-05-13/23-41-02/robot1.safetensors
+    robot: /home/leo/assistax/JaxMARL/baselines/MAPPO/outputs/mabrax/pushcoop/2025-05-13/23-41-02/robot2.safetensors
 
 
 # SWEEPER SETTINGS

@@ -1,4 +1,5 @@
 import os
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.9"
 import time
 from tqdm import tqdm
 import jax
@@ -202,7 +203,7 @@ def main(config):
             info=False,
             avail_actions=False,
         )
-        eval_final = eval_jit(eval_rng, _tree_take(final_train_state, 0, axis=0), render_log_config)
+        eval_final = eval_jit(eval_rng, _tree_take(final_train_state.actor, 0, axis=0), render_log_config) # not sure why we don't just make final_train_state = out["runner_state"].train_state.actor already
         first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
         first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
         first_episode_returns = first_episode_rewards.sum(axis=0)

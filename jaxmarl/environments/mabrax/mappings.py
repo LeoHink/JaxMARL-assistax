@@ -135,9 +135,9 @@ ranges: Dict[str, Dict[str, List[Union[int, Tuple[int, int]]]]] = {
         "global": [(0,67)],
     },
     "pushcoop": {
-        "robot1": [(0, 20)],
-        "robot2": [(21, 40)],
-        "global": [(0, 41)],
+        "robot1": [(0, 26)],
+        "robot2": [(27, 53)],
+        "global": [(0, 53)],
     },
 }
 

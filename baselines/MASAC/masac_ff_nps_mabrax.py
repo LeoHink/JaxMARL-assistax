@@ -912,7 +912,12 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 
     def run_evaluation(rngs, train_state, log_eval_info=EvalInfoLogConfig()):
         
-        rng_reset, rng_env = jax.random.split(rngs[0])
+        if crossplay:
+            rng_reset, rng_env = jax.random.split(rngs[0])
+        else:
+            rng_reset, rng_env = jax.random.split(rngs)
+        
+        # rng_reset, rng_env = jax.random.split(rngs[0])
         rngs_reset = jax.random.split(rng_reset, config["NUM_EVAL_EPISODES"])
         # obsv, env_state = jax.vmap(env.reset)(rngs_reset)
         init_dones = jnp.zeros((env.num_agents, config["NUM_EVAL_EPISODES"],), dtype=bool)
@@ -1033,9 +1038,16 @@ def make_evaluation(config, load_zoo=False, crossplay=False):
 
             return runner_state, episode_eval_info
         
-        runner_state, all_episode_eval_infos = jax.lax.scan(
-            _run_episode, init_runner_state, rngs
+        # runner_state, all_episode_eval_infos = jax.lax.scan(
+        #     _run_episode, init_runner_state, rngs
+        # )
+
+        if crossplay:
+            runner_state, all_episode_eval_infos = jax.lax.scan(
+                _run_episode, init_runner_state, rngs
         )
+        else:
+            runner_state, all_episode_eval_infos = _run_episode(init_runner_state, rngs)
 
         return all_episode_eval_infos
     
