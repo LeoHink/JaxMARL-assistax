@@ -1,5 +1,5 @@
 import os
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.9"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8"
 # os.environ["XLA_FLAGS"] = (
 #     '--xla_gpu_enable_triton_softmax_fusion=true '
 #     '--xla_gpu_triton_gemm_any=true '
@@ -163,7 +163,7 @@ def main(config):
         split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(
-            env_state=True,
+            env_state=False,
             done=True,
             action=False,
             value=False,
@@ -198,7 +198,7 @@ def main(config):
         # RENDER
         # Run episodes for render (saving env_state at each timestep)
         render_log_config = EvalInfoLogConfig(
-            env_state=False,
+            env_state=True,
             done=True,
             action=False,
             value=False,
@@ -230,7 +230,7 @@ def main(config):
             eval_final.env_state.env_state.pipeline_state, first_episode_done,
             time_idx=-1, eval_idx=best_idx,
         )
-        jnp.save("frames.npy", eval_final.env_state.env_state.pixels) # write a functionality like _take_episode with best idx as well
+        # jnp.save("frames.npy", eval_final.env_state.env_state.pixels) # write a functionality like _take_episode with best idx as well
         html.save("final_worst.html", eval_env.sys, worst_episode)
         html.save("final_median.html", eval_env.sys, median_episode)
         html.save("final_best.html", eval_env.sys, best_episode)

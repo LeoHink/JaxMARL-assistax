@@ -228,8 +228,7 @@ def make_train(config, save_train_state=False, load_zoo=False):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, unused):
                 rng = runner_state.rng
-                obs_batch = batchify(runner_state.last_obs, env.agents)
-
+                obs_batch = batchify(runner_state.last_obs, env.agents) # I'll need to change something here for global obs probably stack global obs twice
                 avail_actions = jax.vmap(env.get_avail_actions)(runner_state.env_state.env_state)
                 avail_actions = jax.lax.stop_gradient(
                     batchify(avail_actions, env.agents)

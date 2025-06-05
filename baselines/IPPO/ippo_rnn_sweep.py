@@ -1,4 +1,6 @@
 import os
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
 import time
 from tqdm import tqdm
 import jax
@@ -156,7 +158,7 @@ def main(config):
     sweep = _generate_sweep_axes(sweep_rng, config)
     with jax.disable_jit(config["DISABLE_JIT"]):
         train_jit = jax.jit(
-            make_train(config, save_train_state=True),
+            make_train(config, save_train_state=False),
             device=jax.devices()[config["DEVICE"]]
         )
         out = jax.vmap(
@@ -201,12 +203,13 @@ def main(config):
 
         # SAVE PARAMS
         env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
-        all_train_states = out["metrics"]["train_state"]
+        # all_train_states = out["metrics"]["train_state"]
+
         final_train_state = out["runner_state"].train_state
-        safetensors.flax.save_file(
-            flatten_dict(all_train_states.params, sep='/'),
-            f"{config_key}/all_params.safetensors"
-        )
+        # safetensors.flax.save_file(
+        #     flatten_dict(all_train_states.params, sep='/'),
+        #     f"{config_key}/all_params.safetensors"
+        # )
         if config["network"]["agent_param_sharing"]:
             safetensors.flax.save_file(
                 flatten_dict(final_train_state.params, sep='/'),
@@ -225,20 +228,20 @@ def main(config):
 
         # RUN EVALUATION
         # Assume the first 3 dimensions are batch dims
-        batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:3]
-        n_sequential_evals = int(jnp.ceil(
-            config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
-            / config["GPU_ENV_CAPACITY"]
-        ))
-        def _flatten_and_split_trainstate(train_state):
-            # We define this operation and JIT it for memory reasons
-            flat_trainstate = jax.tree.map(
-                lambda x: x.reshape((x.shape[0]*x.shape[1]*x.shape[2],*x.shape[3:])),
-                train_state
-            )
-            return _tree_split(flat_trainstate, n_sequential_evals)
-        split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
-
+        batch_dims = jax.tree.leaves(_tree_shape(final_train_state.params))[:2]
+        # batch_dims = jax.tree.leaves(_tree_shape(all_train_states.params))[:3]
+        # n_sequential_evals = int(jnp.ceil(
+        #     config["NUM_EVAL_EPISODES"] * jnp.prod(jnp.array(batch_dims))
+        #     / config["GPU_ENV_CAPACITY"]
+        # ))
+        # def _flatten_and_split_trainstate(train_state):
+        #     # We define this operation and JIT it for memory reasons
+        #     flat_trainstate = jax.tree.map(
+        #         lambda x: x.reshape((x.shape[0]*x.shape[1]*x.shape[2],*x.shape[3:])),
+        #         train_state
+        #     )
+        #     return _tree_split(flat_trainstate, n_sequential_evals)
+        # split_trainstate = jax.jit(_flatten_and_split_trainstate)(all_train_states)
         eval_env, run_eval = make_evaluation(config)
         eval_log_config = EvalInfoLogConfig(
             env_state=False,
@@ -256,17 +259,46 @@ def main(config):
             static_argnames=["log_eval_info"],
         )
         eval_vmap = jax.vmap(eval_jit, in_axes=(None, 0, None))
-        evals = _concat_tree([
-            eval_vmap(eval_rng, ts, eval_log_config)
-            for ts in tqdm(split_trainstate, desc="Evaluation batches")
-        ])
+        # # evals = _concat_tree([
+        # #     eval_vmap(eval_rng, ts, eval_log_config)
+        # #     for ts in tqdm(split_trainstate, desc="Evaluation batches")
+        # # ])
+        # # evals = jax.tree.map(
+        # #     lambda x: x.reshape((*batch_dims, *x.shape[1:])),
+        # #     evals
+        # # )
+
+        # def eval_mem_efficient():  
+        #     split_trainstate = _flatten_and_split_trainstate(all_train_states)
+        #     evals = _concat_tree([
+        #         eval_vmap(eval_rng, ts, eval_log_config)
+        #         for ts in tqdm(split_trainstate, desc="Evaluation batches")
+        #     ])
+        #     evals = jax.tree.map(
+        #         lambda x: x.reshape((*batch_dims, *x.shape[1:])),
+        #         evals
+        #     )
+        #     return evals
+        
+        # evals = jax.jit(eval_mem_efficient)()
+        flat_trainstate = jax.tree.map(
+                lambda x: x.reshape((x.shape[0]*x.shape[1],*x.shape[2:])),
+                final_train_state
+            )
+        eval_final = eval_vmap(eval_rng, flat_trainstate, eval_log_config)
+        
+        # first_episode_done = jnp.cumsum(eval_final.done["__all__"], axis=0, dtype=bool)
+        # first_episode_rewards = eval_final.reward["__all__"] * (1-first_episode_done)
+        # first_episode_returns = first_episode_rewards.sum(axis=0)
+        # breakpoint()
         evals = jax.tree.map(
             lambda x: x.reshape((*batch_dims, *x.shape[1:])),
-            evals
+            eval_final
         )
-        breakpoint()
-        # COMPUTE RETURNS
+       
+        # # COMPUTE RETURNS
         first_episode_returns = _compute_episode_returns(evals)
+
         mean_episode_returns = first_episode_returns["__all__"].mean(axis=-1)
 
         # SAVE RETURNS
