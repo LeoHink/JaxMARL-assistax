@@ -256,7 +256,7 @@ def make_train(config, save_train_state=False, load_zoo=False):
                 obsv, env_state, reward, done, info = jax.vmap(env.step)( # for pixel use env_state.env_state.frames instead of obs
                     rng_step, runner_state.env_state, env_act,
                 )
-
+                breakpoint()
                 done_batch = batchify(done, env.agents)
                 info = jax.tree_util.tree_map(lambda x: x.swapaxes(0,1), info)
                 transition = Transition(
