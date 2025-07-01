@@ -182,13 +182,13 @@ def main(config):
             eval_vmap(eval_rng, ts, eval_log_config)
             for ts in tqdm(split_trainstate, desc="Evaluation batches")
         ])
-        breakpoint()
+        
         evals = jax.tree.map(
             lambda x: x.reshape((*batch_dims, *x.shape[1:])),
             evals
         )
 
-        breakpoint()
+        
 
         # COMPUTE RETURNS
         first_episode_returns = _compute_episode_returns(evals)
