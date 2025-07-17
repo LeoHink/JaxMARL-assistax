@@ -1,1 +1,1 @@
-from .mabrax_env import MABraxEnv, Ant, Humanoid, Hopper, Walker2d, HalfCheetah, ScratchItch, BedBathing, ArmManipulation, PushCoop
+from .mabrax_env import MABraxEnv, ScratchItch, BedBathing, ArmManipulation, PushCoop

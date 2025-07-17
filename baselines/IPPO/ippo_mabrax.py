@@ -188,8 +188,7 @@ def main(config):
             evals
         )
 
-        
-
+    
         # COMPUTE RETURNS
         first_episode_returns = _compute_episode_returns(evals)
         first_episode_returns = first_episode_returns["__all__"]
