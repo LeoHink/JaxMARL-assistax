@@ -2,7 +2,8 @@ from typing import Dict, Literal, Optional, Tuple
 import chex
 from jaxmarl.environments.multi_agent_env import MultiAgentEnv
 from gymnax.environments import spaces
-from brax import envs
+# from brax import envs
+from assistax import envs 
 import jax
 import jax.numpy as jnp
 from functools import partial
